@@ -8,7 +8,7 @@ use_amp: True
 amp_dtype: "bfloat16"
 
 # Learning Rate
-lr_scheduler: "warmup_decay_constant_old"
+lr_scheduler: "warmup_decay_constant"
 lr_min: 1e-4
 lr_max: 5e-3
 decay_steps: 100_000
