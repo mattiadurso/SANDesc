@@ -1,0 +1,7 @@
+margin: 0.5
+ratio: 1.0
+random_negative_ratio: 1.0
+random_negative_ratio_decay: 0.9993
+verbose: false
+quadratic: false
+classical: false

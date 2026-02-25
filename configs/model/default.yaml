@@ -1,0 +1,8 @@
+# Model config equivalent
+unet_ch_in: 3
+unet_kernel_size: 5
+unet_activ: "gelu"
+unet_norm: "batch"
+unet_with_skip_connections: true
+third_block: true
+unet_spatial_attention: true

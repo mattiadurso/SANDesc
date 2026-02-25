@@ -1,0 +1,16 @@
+defaults:
+  - training: default
+  - model: default
+  - triplet_loss: default  
+  - _self_
+
+device: "cuda:0"
+save_path: "trainings_descriptor"
+use_wandb: true
+resume_from: null
+
+hydra:
+  run:
+    dir: ./outputs/${training.run_name}/${now:%Y-%m-%d_%H-%M-%S}
+  job:
+    chdir: false
