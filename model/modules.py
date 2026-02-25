@@ -1,10 +1,9 @@
-import gc
 import torch
 import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 
-from typing import Optional, Callable
+from typing import Optional
 
 
 # --------------------------------------------------------

@@ -74,7 +74,7 @@ Training parameters are configured using Hydra configs in the `configs/` directo
 - **Hard Negative Mining**: Dynamic triplet selection for effective learning
 - **Mixed Precision**: AMP support for faster training
 - **Multiple Datasets**: Support for MegaDepth, IMB, synthetic data
-- **Comprehensive Logging**: WandB and TensorBoard integration
+- **Comprehensive Logging**: WandB integration
 - **Reproducible**: Deterministic algorithms and seed management
 
 ## Project Structure
