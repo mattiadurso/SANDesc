@@ -59,13 +59,23 @@ python train_sandesc.py resume_from=path/to/checkpoint.pth
 
 Training parameters are configured using Hydra configs in the `configs/` directory. Key settings include:
 
-- **Model**: Architecture settings (channels, attention, skip@inproceedings{durso2026sandesc,
-        title={A Streamlined Attention-based Network for Descriptor Extraction},
-        author={D'Urso, Mattia and Santellani, Emanuele and Sormann, Christian and Rossi, Mattia and Kuhn, Andreas and Fraundorfer, Friedrich},
-        booktitle={2026 International Conference on 3D Vision (3DV)},
-        year={2026},
-        organization={IEEE Computer Society}
-      } connections)
+If you just want the fixed descriptions for your existing list without the extra fluff, here is the corrected Markdown:
+
+- **Model**: Architecture settings:
+  * `"ch_in"`: Input channel size.
+  * `"kernel_size"`: Size of the convolutional kernel used.
+  * `"activ"`: Activation function to use (`relu`, `gelu`).
+  * `"norm"`: Normalization to use (`batch`, `instance`, `group`).
+  * `"skip_connection"`: Whether to use a skip connection.
+  * `"spatial_attention"`: Whether to use the CBAM module.
+  * `"third_block"`: Whether to use the third block.
+
+
+* **Training**: Batch size, learning rate, iterations, and dataset selection.
+* **Loss**: Triplet loss margin, ratio, and negative mining parameters.
+
+Would you like me to rewrite this into a **Markdown table** instead to save vertical space?
+        
 - **Training**: Batch size, learning rate, iterations, dataset selection
 - **Loss**: Triplet loss margin, ratio, negative mining parameters
 
@@ -85,7 +95,7 @@ sandesc/
 ├── datasets/              # Dataset loaders (MegaDepth, IMB, TerraSky3D etc.)
 ├── model/                 # SANDesc network architecture
 ├── losses/                # Triplet loss implementation
-├── train_utils/           # Training utilities and evaluation
+├── utils/                 # Training utilities and evaluation
 ├── train_sandesc.py       # Main training script
 └── README.md
 ```

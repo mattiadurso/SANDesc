@@ -15,14 +15,14 @@ decay_steps: 100_000
 warmup_steps: 2048
 
 # Training
-dataset: "disk" #"terrasky"
+dataset: "disk" # "terrasky"
 max_n_keypoints: 2048
 max_iterations: 100000
-batch_size: 12 # sandesc is 14
+batch_size: 12
 photo_aug_in_training: False
 random_training_rotation: 30
 
-# wrapper
+# wrapper (all wrappers supported in posebench should work)
 validation_multiscale: False
 train_wrapper: "aliked"
 valid_wrapper: "superpoint"
