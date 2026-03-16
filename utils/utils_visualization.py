@@ -8,14 +8,14 @@ from matplotlib.collections import LineCollection
 from matplotlib.patches import Circle
 import matplotlib.patheffects as PathEffects
 import numpy as np
-import torch as th
+import torch
 from torch import Tensor
 import math
 from utils.utils_image import pad_and_cut_image, cat_images
 
 
 import numpy as np
-import torch as th
+import torch
 import matplotlib
 from matplotlib import pyplot as plt
 from matplotlib.patches import ConnectionPatch
@@ -27,7 +27,7 @@ from utils.utils_keypoints import (
 )
 from utils.utils_matches import MatchesWithExtra
 
-# ? filter out the useless matplotlib warnings
+# filter out the useless matplotlib warnings
 warnings.filterwarnings("ignore", "This figure includes Axes")
 
 
@@ -48,20 +48,20 @@ def subplots(
         nx = math.ceil(math.sqrt(n))
         ny = math.ceil(n / nx)
 
-    # ? initialize matplotlib stuff
+    # initialize matplotlib stuff
     fig = plt.figure(figsize=figsize, dpi=dpi, num=name)
-    # ? use gridspec to remove the empty borders between subplots
+    # use gridspec to remove the empty borders between subplots
     gs = fig.add_gridspec(ny, nx, hspace=hspace, wspace=wspace)
     axes = gs.subplots()
     if subplots_adjust:
-        # ? reduce the outer spacing between subplots
+        # reduce the outer spacing between subplots
         fig.subplots_adjust(
             left=wspace / nx,
             right=1 - wspace / nx,
             top=1 - hspace / ny,
             bottom=hspace / ny,
         )
-    # ? remove ticks and labels
+    # remove ticks and labels
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
     if isinstance(axes, np.ndarray):
@@ -115,17 +115,17 @@ def imshow(
     def image_to_tensor(x: np.ndarray | Tensor) -> Tensor:
         """convert image to tensor if it was a numpy array"""
         if isinstance(x, np.ndarray):
-            # ? convert the list of np.ndarray to list of Tensor
+            # convert the list of np.ndarray to list of Tensor
             assert x.ndim == 2 or x.ndim == 3
             if x.ndim == 3:
-                return th.tensor(x).permute(2, 0, 1)
+                return torch.tensor(x).permute(2, 0, 1)
             else:
-                return th.tensor(x)
+                return torch.tensor(x)
         else:
             return x.detach()
 
     if isinstance(img, list):
-        # ? input is a list of images
+        # input is a list of images
         imgs = [image_to_tensor(x.detach()) for x in img]
 
         n_imgs = len(imgs)
@@ -284,7 +284,7 @@ def scatter(
     if mask_outside:
         x_max = ax.get_xlim()[1]
         y_max = ax.get_ylim()[0]
-        # ? mask the point that project outside
+        # mask the point that project outside
         mask_inside = (0 < xy).all(-1) * (xy[:, 0] < x_max) * (xy[:, 1] < y_max)
         xy = xy[mask_inside]
         if isinstance(radius, np.ndarray):
@@ -302,10 +302,10 @@ def scatter(
         path_effects = []
 
     if real_dimensions:
-        # ? plot circle that does not chance dimension when zooming in
+        # plot circle that does not chance dimension when zooming in
         assert xy.ndim == 2
         if isinstance(radius, float):
-            radius = th.ones(xy.shape[0]) * radius
+            radius = torch.ones(xy.shape[0]) * radius
         for x, y, r, color in zip(xy[:, 0].cpu(), xy[:, 1].cpu(), radius, c):
             handler.add_artist(
                 Circle(xy=(x, y), radius=r, facecolor="none", edgecolor=color)
@@ -558,7 +558,7 @@ def plot_rectangle(
     Returns:
         ax_plot
     """
-    corners_for_plot = th.tensor(
+    corners_for_plot = torch.tensor(
         [
             [center[0] - dimensions[0] / 2, center[1] - dimensions[1] / 2],
             [center[0] - dimensions[0] / 2, center[1] + dimensions[1] / 2],
@@ -619,10 +619,10 @@ def plot_image_pair_with_keypoints_repeatability(
     imshow(img1, ax=axes[1], show=False, cmap="gray")
 
     xy0_proj = warp_points(xy0[None], hom[None], img1.shape[-2:])[0].to(
-        th.float
+        torch.float
     )  # n0,2
-    xy1_proj = warp_points(xy1[None], th.inverse(hom)[None], img0.shape[-2:])[0].to(
-        th.float
+    xy1_proj = warp_points(xy1[None], torch.inverse(hom)[None], img0.shape[-2:])[0].to(
+        torch.float
     )  # n1,2
 
     if xy0.shape[0] > 0 and xy1.shape[0] > 0:
@@ -632,34 +632,34 @@ def plot_image_pair_with_keypoints_repeatability(
         xy0_dist = dist1.min(-1)[0]  # n0
         xy1_dist = dist0.min(-2)[0]  # n1
 
-        xy0_color = th.tensor([1.0, 0.0, 0.0])[None].repeat(
+        xy0_color = torch.tensor([1.0, 0.0, 0.0])[None].repeat(
             xy0.shape[0], 1
         )  # set everything as red
-        xy0_color[xy0_dist.isinf()] = th.tensor(
+        xy0_color[xy0_dist.isinf()] = torch.tensor(
             [0.0, 0.0, 1.0]
         )  # blue for the invalid depth or project out
-        xy0_color[xy0_dist < 3.0] = th.tensor(
+        xy0_color[xy0_dist < 3.0] = torch.tensor(
             [1.0, 0.5, 0.0]
         )  # orange for 2 <= dist < 3
-        xy0_color[xy0_dist < 2.0] = th.tensor(
+        xy0_color[xy0_dist < 2.0] = torch.tensor(
             [1.0, 1.0, 0.0]
         )  # yellow for 2 <= dist < 3
-        xy0_color[xy0_dist < 1.0] = th.tensor(
+        xy0_color[xy0_dist < 1.0] = torch.tensor(
             [0.0, 1.0, 0.0]
         )  # green for 2 <= dist < 3
-        xy1_color = th.tensor([1.0, 0.0, 0.0])[None].repeat(
+        xy1_color = torch.tensor([1.0, 0.0, 0.0])[None].repeat(
             xy1.shape[0], 1
         )  # set everything as red
-        xy1_color[xy1_dist.isinf()] = th.tensor(
+        xy1_color[xy1_dist.isinf()] = torch.tensor(
             [0.0, 0.0, 1.0]
         )  # blue for the invalid depth or project out
-        xy1_color[xy1_dist < 3.0] = th.tensor(
+        xy1_color[xy1_dist < 3.0] = torch.tensor(
             [1.0, 0.5, 0.0]
         )  # orange for 2 <= dist < 3
-        xy1_color[xy1_dist < 2.0] = th.tensor(
+        xy1_color[xy1_dist < 2.0] = torch.tensor(
             [1.0, 1.0, 0.0]
         )  # yellow for 2 <= dist < 3
-        xy1_color[xy1_dist < 1.0] = th.tensor(
+        xy1_color[xy1_dist < 1.0] = torch.tensor(
             [0.0, 1.0, 0.0]
         )  # green for 2 <= dist < 3
     else:
@@ -731,10 +731,10 @@ def plot_image_pair_with_keypoints_and_matches(
     imshow(img1, ax=axes[1], show=False)
 
     xy0_proj = warp_points(xy0[None], hom[None], img1.shape[-2:])[0].to(
-        th.float
+        torch.float
     )  # n0,2
-    xy1_proj = warp_points(xy1[None], th.inverse(hom)[None], img0.shape[-2:])[0].to(
-        th.float
+    xy1_proj = warp_points(xy1[None], torch.inverse(hom)[None], img0.shape[-2:])[0].to(
+        torch.float
     )  # n1,2
 
     xy0_matched = xy0[matches[:, 0]]
@@ -743,22 +743,22 @@ def plot_image_pair_with_keypoints_and_matches(
     xy0_proj_matched = xy0_proj[matches[:, 0]]
     xy1_proj_matched = xy1_proj[matches[:, 1]]
 
-    dist_in_img0 = th.norm(xy0_matched - xy1_proj_matched, dim=-1)
-    dist_in_img1 = th.norm(xy1_matched - xy0_proj_matched, dim=-1)
+    dist_in_img0 = torch.norm(xy0_matched - xy1_proj_matched, dim=-1)
+    dist_in_img1 = torch.norm(xy1_matched - xy0_proj_matched, dim=-1)
 
-    dist = th.stack([dist_in_img0, dist_in_img1]).mean(0)
+    dist = torch.stack([dist_in_img0, dist_in_img1]).mean(0)
 
     def get_matches_color(dist_matched: Tensor) -> Tensor:
-        color_matches = th.tensor([1.0, 0.0, 0.0])[None].repeat(
+        color_matches = torch.tensor([1.0, 0.0, 0.0])[None].repeat(
             dist_matched.shape[0], 1
         )  # set everything as red
-        color_matches[dist_matched < 3.0] = th.tensor(
+        color_matches[dist_matched < 3.0] = torch.tensor(
             [1.0, 0.5, 0.0]
         )  # orange for 2 <= error < 3
-        color_matches[dist_matched < 2.0] = th.tensor(
+        color_matches[dist_matched < 2.0] = torch.tensor(
             [1.0, 1.0, 0.0]
         )  # yellow for 1 <= error < 2
-        color_matches[dist_matched < 1.0] = th.tensor(
+        color_matches[dist_matched < 1.0] = torch.tensor(
             [0.0, 1.0, 0.0]
         )  # lime for error < 1
         return color_matches
@@ -766,9 +766,9 @@ def plot_image_pair_with_keypoints_and_matches(
     color = get_matches_color(dist)
 
     if show_all_keypoints:
-        unmatched_mask0 = th.ones(xy0.shape[0], dtype=th.bool, device=xy0.device)
+        unmatched_mask0 = torch.ones(xy0.shape[0], dtype=torch.bool, device=xy0.device)
         unmatched_mask0[matches[:, 0]] = False
-        unmatched_mask1 = th.ones(xy1.shape[0], dtype=th.bool, device=xy1.device)
+        unmatched_mask1 = torch.ones(xy1.shape[0], dtype=torch.bool, device=xy1.device)
         unmatched_mask1[matches[:, 1]] = False
         scatter(
             xy0[unmatched_mask0], ax=axes[0], radius=radius / 2, c="black", linewidth=1
@@ -867,9 +867,13 @@ def plot_image_pair_with_keypoints(
 
     if matches is not None:
         valid_matches_indexes = matches[matches != -1].view(-1, 2)
-        xy0_unmatched_mask = th.ones(xy0.shape[0], dtype=th.bool, device=xy0.device)
+        xy0_unmatched_mask = torch.ones(
+            xy0.shape[0], dtype=torch.bool, device=xy0.device
+        )
         xy0_unmatched_mask[valid_matches_indexes[:, 0]] = False
-        xy1_unmatched_mask = th.ones(xy1.shape[0], dtype=th.bool, device=xy1.device)
+        xy1_unmatched_mask = torch.ones(
+            xy1.shape[0], dtype=torch.bool, device=xy1.device
+        )
         xy1_unmatched_mask[valid_matches_indexes[:, 1]] = False
 
         xy0_matched = xy0[valid_matches_indexes[:, 0]]
@@ -924,14 +928,14 @@ def plot_image_pair_with_keypoints(
             xy0_matched,
             ax=axes[0],
             texts=indexes0_matched,
-            c=th.tensor(colors),
+            c=torch.tensor(colors),
             radius=radius,
         )
         scatter(
             xy1_matched,
             ax=axes[1],
             texts=indexes1_matched,
-            c=th.tensor(colors),
+            c=torch.tensor(colors),
             radius=radius,
         )
     else:
@@ -989,13 +993,13 @@ def matching_plot(
     matches_mismatch_idxs = matches.matching_matrix_extra.mismatched.nonzero()
     matches_correct_idxs = matches.matching_matrix_extra.correct.nonzero()
 
-    # ? set the matches rgb color
-    matches_unsure_color = th.tensor([0.0, 0.0, 1.0])  # blue
-    matches_inexistent_color = th.tensor([1.0, 0.0, 1.0])  # magenta
-    matches_mismatch_color = th.tensor([1.0, 0.8, 0.0])  # orange
-    matches_correct_color = th.tensor([0.2, 0.8, 0.2])  # lime
+    # set the matches rgb color
+    matches_unsure_color = torch.tensor([0.0, 0.0, 1.0])  # blue
+    matches_inexistent_color = torch.tensor([1.0, 0.0, 1.0])  # magenta
+    matches_mismatch_color = torch.tensor([1.0, 0.8, 0.0])  # orange
+    matches_correct_color = torch.tensor([0.2, 0.8, 0.2])  # lime
 
-    matches = th.cat(
+    matches = torch.cat(
         (
             matches_unsure_idxs,
             matches_inexistent_idxs,
@@ -1003,7 +1007,7 @@ def matching_plot(
             matches_correct_idxs,
         )
     )
-    matches_color = th.cat(
+    matches_color = torch.cat(
         (
             matches_unsure_color.repeat(matches_unsure_idxs.shape[0], 1),
             matches_inexistent_color.repeat(matches_inexistent_idxs.shape[0], 1),

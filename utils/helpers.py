@@ -352,7 +352,7 @@ def seed_management(
     torch.use_deterministic_algorithms(True, warn_only=True)
 
     if mode == "store_and_reset":
-        # ? save the current random states and reset the state
+        # save the current random states and reset the state
         torch_random_state = torch.random.get_rng_state()
         if torch.cuda.is_available():
             torch_cuda_random_state = torch.cuda.get_rng_state()
@@ -398,7 +398,7 @@ def seed_management(
         )
 
     elif mode == "restore" and values is not None:
-        # ? restore the random states
+        # restore the random states
         (
             torch_random_state,
             torch_cuda_random_state,
@@ -415,7 +415,7 @@ def seed_management(
         print("Random states restored correctly")
 
     elif mode == "reset":
-        # ? set all the seeds
+        # set all the seeds
         seed = values if values is not None else 0
         torch.random.manual_seed(seed)
         if torch.cuda.is_available():

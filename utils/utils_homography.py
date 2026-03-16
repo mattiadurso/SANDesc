@@ -7,7 +7,7 @@ sys.path.append("../")
 from typing import Tuple, Dict, Union, Collection
 import numpy as np
 from numpy import array
-import torch as th
+import torch
 from torch import Tensor
 import torch.nn.functional as F
 from utils.utils_2D import (
@@ -30,9 +30,9 @@ def apply_with_probability(probability: float) -> bool:
 
 
 def rot_mat(
-    alpha: float, dtype: th.dtype = None, device: Union[str, th.device] = None
+    alpha: float, dtype: torch.dtype = None, device: Union[str, torch.device] = None
 ) -> Tensor:
-    r_mat = th.tensor(
+    r_mat = torch.tensor(
         [
             [math.cos(alpha), -math.sin(alpha), 0.0],
             [math.sin(alpha), math.cos(alpha), 0.0],
@@ -46,15 +46,15 @@ def rot_mat(
 
 def transl_mat(
     xy: Union[Tensor, Tuple],
-    dtype: th.dtype = None,
-    device: Union[str, th.device] = None,
+    dtype: torch.dtype = None,
+    device: Union[str, torch.device] = None,
 ) -> Tensor:
     """
 
     Returns:
         object:
     """
-    t_mat = th.tensor(
+    t_mat = torch.tensor(
         [[1.0, 0.0, xy[0]], [0.0, 1.0, xy[1]], [0.0, 0.0, 1.0]],
         dtype=dtype,
         device=device,
@@ -83,7 +83,7 @@ def scale_mat(scale: Union[float, Tensor, Tuple]) -> Tensor:
         s = scale
     else:
         s = (scale, scale)
-    scale_matrix = th.tensor([[s[0], 0.0, 0.0], [0.0, s[1], 0.0], [0.0, 0.0, 1.0]])
+    scale_matrix = torch.tensor([[s[0], 0.0, 0.0], [0.0, s[1], 0.0], [0.0, 0.0, 1.0]])
     return scale_matrix
 
 
@@ -133,8 +133,11 @@ def warp_points(
         assert img_shape.shape == (2,)
 
     # xy_hom = geom.convert_points_to_homogeneous(xy.to(H.dtype))  # B,n,3
-    xy_hom = th.cat(
-        (xy, th.ones((xy.shape[0], xy.shape[1], 1), dtype=xy.dtype, device=xy.device)),
+    xy_hom = torch.cat(
+        (
+            xy,
+            torch.ones((xy.shape[0], xy.shape[1], 1), dtype=xy.dtype, device=xy.device),
+        ),
         dim=2,
     ).to(
         H.dtype
@@ -193,8 +196,10 @@ def get_dist_matrix(
             Bxn0xn1
     """
     xy0_proj = warp_points(xy0, H0_1, img1_shape, border)
-    # ? compute the distance between each xy0_proj and xy1
-    dist_matrix = th.cdist(xy0_proj, xy1, compute_mode="donot_use_mm_for_euclid_dist")
+    # compute the distance between each xy0_proj and xy1
+    dist_matrix = torch.cdist(
+        xy0_proj, xy1, compute_mode="donot_use_mm_for_euclid_dist"
+    )
 
     if return_projected:
         return dist_matrix, xy0_proj
@@ -227,10 +232,10 @@ def compute_GT_matches_matrix_homography(
         return_distances_and_projected: additionally return computed distances
     Returns:
         GT_matching_matrix: the resulting GT matching matrix
-            B x n0+1 x n1+1   th.bool
+            B x n0+1 x n1+1   torch.bool
     """
     dist_matrix0, xy1_proj = get_dist_matrix(
-        xy1, xy0, th.inverse(H0_1), img0_shape, border, return_projected=True
+        xy1, xy0, torch.inverse(H0_1), img0_shape, border, return_projected=True
     )
     dist_matrix0 = dist_matrix0.permute(0, 2, 1)
     dist_matrix1, xy0_proj = get_dist_matrix(
@@ -247,7 +252,7 @@ def compute_GT_matches_matrix_homography(
         mnn * (dist_matrix0 < thr) * (dist_matrix1 < thr)
     )
 
-    # ? fill the bins with everything that was not matched
+    # fill the bins with everything that was not matched
     GT_matching_matrix_with_bins[:, :-1, -1] = ~GT_matching_matrix_with_bins[
         :, :-1, :-1
     ].any(2)
@@ -285,19 +290,19 @@ def is_convex(xy: np.ndarray):
     """check if the polygon is convex"""
     N = xy.shape[0]
 
-    # ? direction of cross product of previous edges
+    # direction of cross product of previous edges
     direction_old = 0
 
     for i in range(N):
-        # ? compute two consecutive edges
+        # compute two consecutive edges
         vector = np.array([xy[(i + 1) % N], xy[(i + 2) % N]]) - xy[i]
 
         direction_new = np.cross(vector[0], vector[1])
-        # ? if direction of cross product of all adjacent edges are not same
+        # if direction of cross product of all adjacent edges are not same
         if direction_new * direction_old < 0:
             return False
         else:
-            # ? update old
+            # update old
             direction_old = direction_new
     return True
 
@@ -318,16 +323,16 @@ def generate_homography_for_patch_augmentation(
     assert len(patch_shape) == 2
     Hs = {}
 
-    # ? SHEAR
+    # SHEAR
     if x_shear != 0 or y_shear != 0:
         H_shear = shear_mat_numpy((x_shear, y_shear))
         Hs["shear"] = H_shear
 
-    # ? PERSPECTIVE
+    # PERSPECTIVE
     if x_perspective != 0 or y_perspective != 0:
         H_p = perspective_mat_numpy((x_perspective, y_perspective))
-        # ? here we apply some corrections such that the transformation is more intuitive
-        # ? correct for the translation
+        # here we apply some corrections such that the transformation is more intuitive
+        # correct for the translation
         patch_corners = np.array(
             [
                 [0, 0],
@@ -340,24 +345,24 @@ def generate_homography_for_patch_augmentation(
         patch_corners_projected = warp_points_numpy(patch_corners, H_p)
         center = patch_corners_projected.mean(0)
         H_p = transl_mat_numpy(-center) @ H_p
-        # ? correct for the scale
+        # correct for the scale
         area = compute_quadrilateral_area_from_corners(patch_corners_projected)
         scale = math.sqrt((patch_shape[0] * patch_shape[1]) / area)
         H_p = scale_mat_numpy(scale) @ H_p
         Hs["perspective"] = H_p
 
-    # ? ROTATION
+    # ROTATION
     if alpha_degrees != 0:
         H_rot = rot_mat_numpy(alpha_degrees / 180.0 * math.pi)
         H_r = H_rot
         Hs["rotation"] = H_r
 
-    # ? SCALE
+    # SCALE
     if x_scale != 1 or y_scale != 1:
         H_s = scale_mat_numpy((x_scale, y_scale))
         Hs["scale"] = H_s
 
-    # ? TRANSLATION
+    # TRANSLATION
     if x_translation != 0 or y_translation != 0:
         H_t = transl_mat_numpy((x_translation, y_translation))
         Hs["translation"] = H_t
@@ -367,12 +372,12 @@ def generate_homography_for_patch_augmentation(
     for k in keys:
         H = Hs[k] @ H
 
-    # ? translate back and forward such that all the transformations are applyed at the center of the patch
+    # translate back and forward such that all the transformations are applyed at the center of the patch
     t = np.array([[1, 0, patch_center[0]], [0, 1, patch_center[1]], [0, 0, 1]])
     H = t @ H @ np.linalg.inv(t)
 
-    # ? correct the homography such that when warping the image, the patch_center coordinate
-    # ? ends exactly in the center of the patch
+    # correct the homography such that when warping the image, the patch_center coordinate
+    # ends exactly in the center of the patch
     translation = transl_mat_numpy(
         (patch_center[0] - patch_shape[1] // 2, patch_center[1] - patch_shape[0] // 2)
     )
@@ -445,7 +450,7 @@ def sample_homography(
     for i in range(max_n_iterations):
         if (
             i == max_n_iterations - 1
-        ):  # ? if we reached the max number of iterations return just the translation
+        ):  # if we reached the max number of iterations return just the translation
             print(
                 "Warning: we could not generate the homography, returning the homography with just the translation"
             )
@@ -463,7 +468,7 @@ def sample_homography(
             }
             break
 
-        # ? SHEAR
+        # SHEAR
         if apply_with_probability(params["shear_p"]) and (
             params.get("shear_std", 0) > 0
             or params.get("shear_delta", 0) > 0
@@ -491,14 +496,14 @@ def sample_homography(
             x_shear = 0.0
             y_shear = 0.0
 
-        # ? PERSPECTIVE
+        # PERSPECTIVE
         if apply_with_probability(params["perspective_p"]) and (
             params.get("perspective_std", 0) > 0
             or params.get("perspective_delta", 0) > 0
             or params.get("perspective_x_delta", 0) > 0
             or params.get("perspective_y_delta", 0) > 0
         ):
-            # ? image center projective deformation
+            # image center projective deformation
             if "perspective_std" in params:
                 x_perspective = (
                     np.random.normal(0, params["perspective_std"]) / patch_shape[1]
@@ -540,11 +545,11 @@ def sample_homography(
             x_perspective = 0.0
             y_perspective = 0.0
 
-        # ? ROTATION
+        # ROTATION
         if apply_with_probability(params["angle_p"]) and (
             params.get("angle_std", 0) > 0 or params.get("angle_delta", 0) > 0
         ):
-            # ? image center rotation
+            # image center rotation
             if "angle_std" in params:
                 alpha_degrees = np.random.normal(0, params["angle_std"])
             else:
@@ -553,7 +558,7 @@ def sample_homography(
         else:
             alpha_degrees = 0.0
 
-        # ? SCALE
+        # SCALE
         if apply_with_probability(params["scale_p"]) and (
             params.get("scale_std", 0) > 0
             or params.get("scale_delta", 0) > 0
@@ -564,7 +569,7 @@ def sample_homography(
                 x_scale = 1 + np.random.normal(0, params["scale_std"])
                 y_scale = 1 + np.random.normal(0, params["scale_std"])
             else:
-                # ? get only smaller images (to be sure that the patch fits the image)
+                # get only smaller images (to be sure that the patch fits the image)
                 assert (
                     "scale_delta" in params
                     and "scale_x_delta" in params
@@ -577,7 +582,7 @@ def sample_homography(
                 else:
                     x_scale = 1 - (np.random.random() * params["scale_delta"])
                     y_scale = 1 - (np.random.random() * params["scale_delta"])
-                # # ? get both bigger or smaller images
+                # # get both bigger or smaller images
                 # x_scale = 1 + (np.random.random() * 2 - 1) * params['scale_delta']
                 # y_scale = 1 + (np.random.random() * 2 - 1) * params['scale_delta'] if params.get('scale_anisotropic') else x_scale
             H_params["scale"] = (x_scale, y_scale)
@@ -585,7 +590,7 @@ def sample_homography(
             x_scale = 1.0
             y_scale = 1.0
 
-        # ? TRANSLATION
+        # TRANSLATION
         if apply_with_probability(params["translation_p"]) and (
             params.get("translation_std", 0) > 0
             or params.get("translation_delta", 0) > 0
@@ -627,7 +632,7 @@ def sample_homography(
             y_translation=y_translation,
         )
 
-        # ? backproject the four patch corners
+        # backproject the four patch corners
         points = np.array(
             [
                 [0, 0],
@@ -637,7 +642,7 @@ def sample_homography(
             ]
         )
         points_backprojected = warp_points_numpy(points, H)
-        # ? check if the polygon is convex
+        # check if the polygon is convex
         if not is_convex(points_backprojected):
             print("Warning: generated homography is not convex")
             continue
@@ -645,7 +650,7 @@ def sample_homography(
         if params["allow_results_with_padding"]:
             break
         else:
-            # ? check if all the points are inside the image
+            # check if all the points are inside the image
             if points_in_image(points_backprojected, source_img_shape):
                 break
             else:
@@ -669,17 +674,19 @@ def my_warp_perspective(
     """the provided hom must map from the input to the output"""
     B, C, H, W = img.shape
     grid = (
-        th.stack(
-            th.meshgrid(th.arange(0, shape[1]), th.arange(0, shape[0]), indexing="xy"),
+        torch.stack(
+            torch.meshgrid(
+                torch.arange(0, shape[1]), torch.arange(0, shape[0]), indexing="xy"
+            ),
             dim=-1,
         )[None]
         + 0.5
     )  # 1,H_out,W_out,2
     grid = grid.to(hom.dtype)
-    grid_warped = warp_points(grid.view(1, -1, 2), th.inverse(hom)).view(
+    grid_warped = warp_points(grid.view(1, -1, 2), torch.inverse(hom)).view(
         B, shape[0], shape[1], 2
     )  # 1,H,W,2
-    grid_warped_normalized = grid_warped / (0.5 * th.tensor([W, H]))[None] - 1
+    grid_warped_normalized = grid_warped / (0.5 * torch.tensor([W, H]))[None] - 1
     output = F.grid_sample(
         img.to(hom.dtype),
         grid_warped_normalized,
@@ -709,13 +716,13 @@ def rotate_image_and_crop_without_black_borders(
     """
     assert img.ndim == 3, f"img must be C,H,W, but got {img.shape}"
 
-    matrix_rotation = rot_mat(angle_degrees / 180.0 * np.pi, dtype=th.double)
+    matrix_rotation = rot_mat(angle_degrees / 180.0 * np.pi, dtype=torch.double)
     matrix_translation = transl_mat(
-        (img.shape[-1] / 2, img.shape[-2] / 2), dtype=th.double
+        (img.shape[-1] / 2, img.shape[-2] / 2), dtype=torch.double
     )
     hom_rotation = matrix_translation @ matrix_rotation @ matrix_translation.inverse()
 
-    # ? find the largest possible rectangle that fits in the rotated image such that there are no black borders
+    # find the largest possible rectangle that fits in the rotated image such that there are no black borders
     W_output, H_output, W_border, H_border = rotatedRectWithMaxArea(
         img.shape[-1], img.shape[-2], angle_degrees / 180.0 * np.pi
     )
@@ -727,14 +734,14 @@ def rotate_image_and_crop_without_black_borders(
     )
     # print(f'angle: {angle_degrees},  {H_output},{W_output},  borders: {H_border},{W_border}')
 
-    # ? correct the homography with this translation
-    matrix_border = transl_mat((-W_border, -H_border), dtype=th.double)
+    # correct the homography with this translation
+    matrix_border = transl_mat((-W_border, -H_border), dtype=torch.double)
     hom_rotation_without_border = matrix_border @ hom_rotation
-    # # ? NOT APPLY ANY CROPPING
+    # # NOT APPLY ANY CROPPING
     # hom_rotation_without_border = hom_rotation
     # H_output, W_output = img.shape[-2], img.shape[-1]
 
-    # ? apply the rotation to the image
+    # apply the rotation to the image
     img_rotated = my_warp_perspective(
         img[None],
         hom_rotation_without_border[None],
@@ -742,4 +749,4 @@ def rotate_image_and_crop_without_black_borders(
         mode=mode,
     )[0]
 
-    return img_rotated, hom_rotation_without_border, th.tensor([W_border, H_border])
+    return img_rotated, hom_rotation_without_border, torch.tensor([W_border, H_border])

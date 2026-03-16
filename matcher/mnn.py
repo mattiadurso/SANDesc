@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-import torch as th
+import torch
 from torch import Tensor
 
 
@@ -35,7 +35,7 @@ def get_margin_and_ratio_from_scores_and_mnn_matrix(
     assert mnn_matrix.shape[0] == best_scores0.shape[0] == second_best_scores0.shape[0]
     assert mnn_matrix.shape[1] == second_best_scores1.shape[0]
 
-    rows_matches_idx, column_matches_idx = th.where(
+    rows_matches_idx, column_matches_idx = torch.where(
         mnn_matrix
     )  # (n_matches), (n_matches)
     best_scores0_matches = best_scores0[rows_matches_idx]  # n_matches_proposed
@@ -47,11 +47,11 @@ def get_margin_and_ratio_from_scores_and_mnn_matrix(
     second_best_scores1_matches = second_best_scores1[
         column_matches_idx
     ]  # n_matches_proposed
-    margin = best_scores0_matches - th.max(
+    margin = best_scores0_matches - torch.max(
         second_best_scores0_matches, second_best_scores1_matches
     )  # n_matches_proposed
     ratio = (
-        th.max(second_best_scores0_matches, second_best_scores1_matches)
+        torch.max(second_best_scores0_matches, second_best_scores1_matches)
         / best_scores0_matches
     )  # n_matches_proposed
     return margin, ratio
@@ -68,12 +68,12 @@ def mutual_nearest_neighbors_from_score_matrix(
         ratio_test: ratio test to apply to the score matrix
     Returns:
         mnn: mutual nearest neighbors matrix
-            Bxn0xn1 th.bool
+            Bxn0xn1 torch.bool
     """
     assert score_mat.ndim == 3
     B, n0, n1 = score_mat.shape
     if n0 == 0 or n1 == 0:
-        return score_mat.new_zeros((B, n0, n1), dtype=th.bool)
+        return score_mat.new_zeros((B, n0, n1), dtype=torch.bool)
 
     device = score_mat.device
     score_mat = score_mat.clone()
@@ -88,10 +88,14 @@ def mutual_nearest_neighbors_from_score_matrix(
     nn0_idx[nn0_value == float("-inf")] = n1  # (B,n0) with values [0, n1]
     nn1_idx[nn1_value == float("-inf")] = n0  # (B,n1) with values [0, n0]
 
-    nn0_matrix = th.zeros((B, n0 + 1, n1 + 1), dtype=th.bool, device=device)  # Bxn0xn1
+    nn0_matrix = torch.zeros(
+        (B, n0 + 1, n1 + 1), dtype=torch.bool, device=device
+    )  # Bxn0xn1
     nn0_matrix[:, :-1, :].scatter_(2, nn0_idx[:, :, None], True)
 
-    nn1_matrix = th.zeros((B, n0 + 1, n1 + 1), dtype=th.bool, device=device)  # Bxn0xn1
+    nn1_matrix = torch.zeros(
+        (B, n0 + 1, n1 + 1), dtype=torch.bool, device=device
+    )  # Bxn0xn1
     nn1_matrix[:, :, :-1].scatter_(1, nn1_idx[:, None, :], True)
 
     #  compose the two matrices
@@ -125,29 +129,31 @@ def mutual_nearest_neighbors_from_dist_matrix(dist: Tensor) -> Tensor:
             Bxn0xn1
     Returns:
         mnn: mutual nearest neighbors matrix
-            Bxn0xn1 th.bool
+            Bxn0xn1 torch.bool
     """
     B, n0, n1 = dist.shape
     if n0 == 0 or n1 == 0:
-        return dist.new_zeros((B, n0, n1), dtype=th.bool)
+        return dist.new_zeros((B, n0, n1), dtype=torch.bool)
 
     device = dist.device
 
     #  get the closest ones for each row and column
-    nn0 = th.argmin(dist, dim=2)  # Bxn0 with values [0, n1[
-    nn1 = th.argmin(dist, dim=1)  # Bxn1 with values [0, n0[
+    nn0 = torch.argmin(dist, dim=2)  # Bxn0 with values [0, n1[
+    nn1 = torch.argmin(dist, dim=1)  # Bxn1 with values [0, n0[
 
     #  build the closest one matrix for each kpts0 (every row is dist from a kpts0_i and all the others kpts1)
-    B0_idxs = th.arange(B).repeat_interleave(n0).to(device)  # B*n0
-    nn0_matrix = th.zeros_like(dist, dtype=th.bool)  # Bxn0xn1
-    nn0_matrix[B0_idxs, th.arange(n0).repeat(B, 1).reshape(-1), nn0.reshape(-1)] = (
+    B0_idxs = torch.arange(B).repeat_interleave(n0).to(device)  # B*n0
+    nn0_matrix = torch.zeros_like(dist, dtype=torch.bool)  # Bxn0xn1
+    nn0_matrix[B0_idxs, torch.arange(n0).repeat(B, 1).reshape(-1), nn0.reshape(-1)] = (
         True  # Bxn0xn1
     )
 
     #  build the closest one matrix for each kpts1 (every row is dist from a kpts1_i and all the others kpts0)
-    B1_idxs = th.arange(B).repeat_interleave(n1)
-    nn1_matrix = th.zeros_like(dist, dtype=th.bool)  # Bxn0xn1
-    nn1_matrix[B1_idxs, nn1.reshape(-1), th.arange(n1).repeat(B, 1).reshape(-1)] = True
+    B1_idxs = torch.arange(B).repeat_interleave(n1)
+    nn1_matrix = torch.zeros_like(dist, dtype=torch.bool)  # Bxn0xn1
+    nn1_matrix[B1_idxs, nn1.reshape(-1), torch.arange(n1).repeat(B, 1).reshape(-1)] = (
+        True
+    )
 
     #  by multiplying the two matrices only the mutual-nearest-neighbours are selected
     mnn_matrix = nn0_matrix * nn1_matrix
@@ -183,8 +189,10 @@ def match_descriptors_mnn_scores_ratio_test(
     for b in range(B):
         #  match keypoints
         if des0[b].shape[0] == 0 or des1[b].shape[0] == 0:
-            matches = th.zeros(0, 2, device=device, dtype=th.long)
-            score_matrix = th.zeros(des0[b].shape[0], des1[b].shape[0], device=device)
+            matches = torch.zeros(0, 2, device=device, dtype=torch.long)
+            score_matrix = torch.zeros(
+                des0[b].shape[0], des1[b].shape[0], device=device
+            )
         else:
             score_matrix = des0[b] @ des1[b].permute(1, 0)  # n0 x n1
             #  set the nan in the score_matrix to -1
@@ -197,7 +205,7 @@ def match_descriptors_mnn_scores_ratio_test(
                 0
             ]  # n0 x n1
 
-            matches = th.nonzero(matches_mat)
+            matches = torch.nonzero(matches_mat)
         matches_list.append(matches)
         score_matrix_list.append(score_matrix)
     return matches_list, score_matrix_list
@@ -227,9 +235,9 @@ def compute_correct_wrong_mismatched_inexistent_unsure_matches(
     ), f"{matching_matrix.shape[2]} != {GT_matching_matrix_with_bins.shape[2] - 1}"
     assert matching_matrix.ndim == 3, f"{matching_matrix.ndim} != 3"
     assert (
-        matching_matrix.dtype == th.bool
-        and GT_matching_matrix_with_bins.dtype == th.bool
-    ), f"{matching_matrix.dtype} != {th.bool} or {GT_matching_matrix_with_bins.dtype} != {th.bool}"
+        matching_matrix.dtype == torch.bool
+        and GT_matching_matrix_with_bins.dtype == torch.bool
+    ), f"{matching_matrix.dtype} != {torch.bool} or {GT_matching_matrix_with_bins.dtype} != {torch.bool}"
 
     GT_matching_matrix = GT_matching_matrix_with_bins[:, :-1, :-1]
     B, H, W = GT_matching_matrix.shape
@@ -338,7 +346,7 @@ class Matches:
 
     @property
     def matching_matrix(self) -> Tensor:
-        output = th.zeros_like(self.score_matrix, dtype=th.bool)
+        output = torch.zeros_like(self.score_matrix, dtype=torch.bool)
         output[self.matches[:, 0], self.matches[:, 1]] = True
         return output
 
@@ -419,8 +427,8 @@ class Matches:
         # > compute the margins and ratios
         score_matrix_with_inf = self.score_matrix.clone()
         score_matrix_with_inf[score_matrix_with_inf.isnan()] = float("-inf")
-        best_two_scores0 = th.topk(score_matrix_with_inf, 2, dim=-1)[0]  # (n0,2)
-        best_two_scores1 = th.topk(score_matrix_with_inf, 2, dim=-2)[0].T  # (n1,2)
+        best_two_scores0 = torch.topk(score_matrix_with_inf, 2, dim=-1)[0]  # (n0,2)
+        best_two_scores1 = torch.topk(score_matrix_with_inf, 2, dim=-2)[0].T  # (n1,2)
         best_scores0, second_best_scores0 = (
             best_two_scores0[:, 0],
             best_two_scores0[:, 1],

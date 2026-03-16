@@ -2,14 +2,14 @@ import os
 from typing import Dict
 from pathlib import Path
 
-import torch as th
+import torch
 from torch import nn as nn
 
 
 def save_checkpoint(
     config,
     model: nn.Module,
-    optimizer: th.optim.Optimizer,
+    optimizer: torch.optim.Optimizer,
     iteration: int,
     save_path: Path = None,
     triplet_loss=None,
@@ -49,14 +49,14 @@ def save_checkpoint(
 
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-    th.save(state, checkpoint_path)  # ? save everything
+    torch.save(state, checkpoint_path)  # save everything
 
     print(f"Checkpoint saved at {checkpoint_path}, iteration: {iteration}")
     return checkpoint_path
 
 
 def resume_checkpoint(
-    model: nn.Module, optimizer: th.optim.Optimizer, checkpoint: Dict
+    model: nn.Module, optimizer: torch.optim.Optimizer, checkpoint: Dict
 ) -> None:
     try:
         model.load_state_dict(checkpoint["state_dict"])

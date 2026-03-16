@@ -1,6 +1,6 @@
 import torchvision.transforms.functional
 from matplotlib import pyplot as plt
-import torch as th
+import torch
 import numpy as np
 from torch import Tensor
 import torch.nn.functional as F
@@ -8,7 +8,7 @@ from typing import Tuple, Union
 
 
 def crop_multiple_of(img: Tensor, multiple: int) -> Tensor:
-    """ crop an image from the input starting from the top-left corner such that both crop_H and crop_W are multiple of
+    """crop an image from the input starting from the top-left corner such that both crop_H and crop_W are multiple of
     the provided number. crop_H and crop_W can be different, and are chosen as the closest to the original resolution
     Args:
         img: input image tensor
@@ -26,8 +26,10 @@ def crop_multiple_of(img: Tensor, multiple: int) -> Tensor:
     return img_out
 
 
-def denormalize(img: Tensor, RGB_mean=(0.485, 0.456, 0.406), RGB_std=(0.229, 0.224, 0.225)) -> Tensor:
-    """ denormalize the image color given the parameters used for the normalization
+def denormalize(
+    img: Tensor, RGB_mean=(0.485, 0.456, 0.406), RGB_std=(0.229, 0.224, 0.225)
+) -> Tensor:
+    """denormalize the image color given the parameters used for the normalization
     Args:
         img: input image
             BxCxHxW or BxHxW or CxHxW or HxW
@@ -37,19 +39,28 @@ def denormalize(img: Tensor, RGB_mean=(0.485, 0.456, 0.406), RGB_std=(0.229, 0.2
         output_img: the rescaled color image
     Raises:
         None
-"""
+    """
     output_img = torchvision.transforms.functional.normalize(
         img,
-        mean=[-RGB_mean[0] / RGB_std[0], -RGB_mean[1] / RGB_std[1], -RGB_mean[2] / RGB_std[2]],
-        std=[1 / RGB_std[0], 1 / RGB_std[1], 1 / RGB_std[2]]
+        mean=[
+            -RGB_mean[0] / RGB_std[0],
+            -RGB_mean[1] / RGB_std[1],
+            -RGB_mean[2] / RGB_std[2],
+        ],
+        std=[1 / RGB_std[0], 1 / RGB_std[1], 1 / RGB_std[2]],
     )
 
     return output_img
 
 
-def pad_and_cut_image(img: Tensor, shape: Tuple[int, int], mode: str = 'center', value: float = float('nan'),
-                      allow_cuts: bool = False) -> Tensor:
-    """ pad the input image such that the output shape is as required, the image is kept in the center
+def pad_and_cut_image(
+    img: Tensor,
+    shape: Tuple[int, int],
+    mode: str = "center",
+    value: float = float("nan"),
+    allow_cuts: bool = False,
+) -> Tensor:
+    """pad the input image such that the output shape is as required, the image is kept in the center
     Args:
         img: the input image
             [... x H x W]
@@ -61,22 +72,22 @@ def pad_and_cut_image(img: Tensor, shape: Tuple[int, int], mode: str = 'center',
         Tensor: the padded image
     """
     H, W = img.shape[-2:]
-    assert mode in ['center', 'bottom-right']
+    assert mode in ["center", "bottom-right"]
     if allow_cuts:
-        img = img.clone()[..., :min(shape[0], H), :min(shape[1], W)]
+        img = img.clone()[..., : min(shape[0], H), : min(shape[1], W)]
         H, W = img.shape[-2:]
     else:
         assert H <= shape[0] and W <= shape[1]
 
     pad_x = shape[1] - W
     pad_y = shape[0] - H
-    if mode == 'center':
+    if mode == "center":
         pad_l = pad_x // 2
         pad_r = pad_x - pad_l
         pad_t = pad_y // 2
         pad_b = pad_y - pad_t
     else:
-        # ? bottom-right
+        # bottom-right
         pad_l = 0
         pad_r = pad_x
         pad_t = 0
@@ -87,8 +98,10 @@ def pad_and_cut_image(img: Tensor, shape: Tuple[int, int], mode: str = 'center',
     return img_padded
 
 
-def gray_to_colormap(img: Tensor, cmap: str = 'inferno', rescale: bool = True) -> Tensor:
-    """ Convert a grayscale images to a specific matplotlib colormap
+def gray_to_colormap(
+    img: Tensor, cmap: str = "inferno", rescale: bool = True
+) -> Tensor:
+    """Convert a grayscale images to a specific matplotlib colormap
     Args:
         img: the input batched grayscale images
             HxW or 1xHxW
@@ -112,13 +125,15 @@ def gray_to_colormap(img: Tensor, cmap: str = 'inferno', rescale: bool = True) -
         img /= img.max()
 
     color = cm(img)[:, :, :3]
-    return th.tensor(color, dtype=th.float32).permute(2, 0, 1)
+    return torch.tensor(color, dtype=torch.float32).permute(2, 0, 1)
 
 
-def generate_random_patch_center(img_shape: Union[Tuple[int, int], np.ndarray],
-                                 patch_shape: Union[Tuple[int, int], np.ndarray], offset: int = 20
-                                 ) -> np.ndarray:
-    """ randomly generate the central point of the patch in a way that the patch+offset is completely contained in
+def generate_random_patch_center(
+    img_shape: Union[Tuple[int, int], np.ndarray],
+    patch_shape: Union[Tuple[int, int], np.ndarray],
+    offset: int = 20,
+) -> np.ndarray:
+    """randomly generate the central point of the patch in a way that the patch+offset is completely contained in
     the image
     Args:
         img_shape: the input image shape (H, W)
@@ -127,8 +142,9 @@ def generate_random_patch_center(img_shape: Union[Tuple[int, int], np.ndarray],
     Returns:
         array: the coordinate of the center given as (y, x)
     """
-    assert (np.array(img_shape) >= np.array(patch_shape) + 2 * offset).all(), \
-        f'Assert error patch dimension {patch_shape} +2*offset {2 * offset}  is bigger than source image {img_shape}'
+    assert (
+        np.array(img_shape) >= np.array(patch_shape) + 2 * offset
+    ).all(), f"Assert error patch dimension {patch_shape} +2*offset {2 * offset}  is bigger than source image {img_shape}"
 
     min_y = patch_shape[0] // 2 + offset
     max_y = img_shape[0] - patch_shape[0] // 2 - offset
@@ -148,8 +164,8 @@ def generate_random_patch_center(img_shape: Union[Tuple[int, int], np.ndarray],
     return np.array([x_center, y_center])
 
 
-def cat_images(img0: Tensor, img1: Tensor, mode: str = 'vertical') -> Tensor:
-    """ concatenate two images padding the smallest one
+def cat_images(img0: Tensor, img1: Tensor, mode: str = "vertical") -> Tensor:
+    """concatenate two images padding the smallest one
     Args:
         img0: input image0
             [...xH0xW0]
@@ -162,16 +178,19 @@ def cat_images(img0: Tensor, img1: Tensor, mode: str = 'vertical') -> Tensor:
     """
     H0, W0 = img0.shape[-2:]
     H1, W1 = img1.shape[-2:]
-    assert mode in ['vertical', 'horizontal'], 'type not recognized, choose between <vertical> or <horizontal>'
-    if mode == 'vertical':
+    assert mode in [
+        "vertical",
+        "horizontal",
+    ], "type not recognized, choose between <vertical> or <horizontal>"
+    if mode == "vertical":
         W_max = max(W0, W1)
         img0_pad = pad_and_cut_image(img0, (H0, W_max))
         img1_pad = pad_and_cut_image(img1, (H1, W_max))
-        img_cat =  th.cat((img0_pad, img1_pad), dim=-2)
+        img_cat = torch.cat((img0_pad, img1_pad), dim=-2)
     else:
-        # ? horizontal
+        # horizontal
         H_max = max(H0, H1)
         img0_pad = pad_and_cut_image(img0, (H_max, W0))
         img1_pad = pad_and_cut_image(img1, (H_max, W1))
-        img_cat = th.cat((img0_pad, img1_pad), dim=-1)
+        img_cat = torch.cat((img0_pad, img1_pad), dim=-1)
     return img_cat

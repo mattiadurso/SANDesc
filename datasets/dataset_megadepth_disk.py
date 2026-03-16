@@ -4,7 +4,7 @@ import json
 import h5py
 import imageio.v3 as io
 import numpy as np
-import torch as th
+import torch
 import torch.nn.functional as F
 from torch import Tensor
 from torch.utils.data import Dataset
@@ -235,13 +235,13 @@ class MegadepthDiskDataset(Dataset):
         depth_path = base_path / "depth_maps" / f"{img_path.stem}.h5"
         calib_path = base_path / "calibration" / f"calibration_{img_path.name}.h5"
 
-        img0 = th.tensor(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
-        depth0 = th.tensor(h5py.File(depth_path, "r")["depth"][()])
+        img0 = torch.tensor(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
+        depth0 = torch.tensor(h5py.File(depth_path, "r")["depth"][()])
         calib_h5 = h5py.File(calib_path, "r")
         K, R, t = (
-            th.tensor(calib_h5["K"][()]),
-            th.tensor(calib_h5["R"][()]),
-            th.tensor(calib_h5["T"][()]),
+            torch.tensor(calib_h5["K"][()]),
+            torch.tensor(calib_h5["R"][()]),
+            torch.tensor(calib_h5["T"][()]),
         )
         P = P_from_R_t(R[None], t[None])[0]
 

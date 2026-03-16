@@ -1,7 +1,7 @@
 from typing import Tuple, Dict, Callable, Union
 
 import numpy as np
-import torch as th
+import torch
 from torch import Tensor
 
 from torch.utils.data import DataLoader
@@ -166,7 +166,7 @@ def get_dataloaders(
                         p=0.5,  # 50% probability of applying each distortion
                     ),
                     v2.RandomApply(
-                        th.nn.ModuleList(
+                        torch.nn.ModuleList(
                             [
                                 v2.GaussianNoise(
                                     mean=0.0,
@@ -226,7 +226,7 @@ def get_dataloaders(
         num_workers=num_workers,
         drop_last=True,
         shuffle=False,
-        worker_init_fn=lambda x: np.random.seed(th.initial_seed() % (2**32 - 1)),
+        worker_init_fn=lambda x: np.random.seed(torch.initial_seed() % (2**32 - 1)),
         pin_memory=True,
     )
     dataloader_eval = DataLoader(

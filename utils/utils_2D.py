@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
-import torch as th
+import torch
 from torch import Tensor
 import torch.nn.functional as F
 from typing import List, Tuple, Union, Optional
@@ -80,7 +80,7 @@ def grid_sample_nan(xy: Tensor, img: Tensor, mode="nearest") -> Tuple[Tensor, Te
     """
     assert img.dim() in {3, 4}
     if img.dim() == 3:
-        # ? remove the channel dimension from the result at the end of the function
+        # remove the channel dimension from the result at the end of the function
         squeeze_result = True
         img.unsqueeze_(1)
     else:
@@ -93,7 +93,7 @@ def grid_sample_nan(xy: Tensor, img: Tensor, mode="nearest") -> Tuple[Tensor, Te
     B, C, H, W = img.shape
 
     xy_norm = normalize_pixel_coordinates(xy, img.shape[-2:])  # BxNx2 or BxN0xN1x2
-    # ? set to nan the point that fall out of the second image
+    # set to nan the point that fall out of the second image
     xy_norm[(xy_norm < -1) + (xy_norm > 1)] = float("nan")
     if xy.ndim == 3:
         sampled = F.grid_sample(
@@ -109,9 +109,9 @@ def grid_sample_nan(xy: Tensor, img: Tensor, mode="nearest") -> Tuple[Tensor, Te
         sampled = F.grid_sample(
             img, xy_norm, align_corners=False, mode=mode, padding_mode="border"
         )  # BxCxN0xN1
-    # ? points xy that are not nan and have nan img. The sum is just to squash the channel dimension
-    mask_img_nan = th.isnan(sampled.sum(1))  # BxN or BxN0xN1
-    # ? set to nan the sampled values for points xy that were nan (grid_sample consider those as (-1, -1))
+    # points xy that are not nan and have nan img. The sum is just to squash the channel dimension
+    mask_img_nan = torch.isnan(sampled.sum(1))  # BxN or BxN0xN1
+    # set to nan the sampled values for points xy that were nan (grid_sample consider those as (-1, -1))
     xy_invalid = xy_norm.isnan().any(-1)  # BxN or BxN0xN1
     if xy.ndim == 3:
         sampled[xy_invalid[:, None, :].repeat(1, C, 1)] = float("nan")
@@ -185,27 +185,27 @@ def find_mutual_nearest_neighbors_from_keypoints_and_their_projections(
     if n1 > 0:
         xy0_closest_dist, closest0 = dist1.min(1)
     else:
-        xy0_closest_dist, closest0 = th.zeros((0,), device=device), th.zeros(
-            (0,), dtype=th.long, device=device
+        xy0_closest_dist, closest0 = torch.zeros((0,), device=device), torch.zeros(
+            (0,), dtype=torch.long, device=device
         )  # n0
     if n0 > 0:
         xy1_closest_dist, closest1 = dist0.min(0)
     else:
-        xy1_closest_dist, closest1 = th.zeros((0,), device=device), th.zeros(
-            (0,), dtype=th.long, device=device
+        xy1_closest_dist, closest1 = torch.zeros((0,), device=device), torch.zeros(
+            (0,), dtype=torch.long, device=device
         )  # n1
 
-    xy0_closest_matrix = th.zeros(dist0.shape, dtype=th.bool, device=device)
-    xy1_closest_matrix = th.zeros(dist0.shape, dtype=th.bool, device=device)
+    xy0_closest_matrix = torch.zeros(dist0.shape, dtype=torch.bool, device=device)
+    xy1_closest_matrix = torch.zeros(dist0.shape, dtype=torch.bool, device=device)
     if n1 > 0:
-        xy0_closest_matrix[th.arange(len(xy0)), dist1.argmin(1)] = True
+        xy0_closest_matrix[torch.arange(len(xy0)), dist1.argmin(1)] = True
     if n0 > 0:
-        xy1_closest_matrix[dist0.argmin(0), th.arange(len(xy1))] = True
-    # ? fink the keypoints that are mutual nearest neighbors (using only x,y coordinates) in both images
+        xy1_closest_matrix[dist0.argmin(0), torch.arange(len(xy1))] = True
+    # fink the keypoints that are mutual nearest neighbors (using only x,y coordinates) in both images
     mnn_mask = xy0_closest_matrix & xy1_closest_matrix
     mnn_idx = mnn_mask.nonzero()
-    xy0_closest_dist_mnn = th.ones_like(xy0_closest_dist) * float("inf")
-    xy1_closest_dist_mnn = th.ones_like(xy1_closest_dist) * float("inf")
+    xy0_closest_dist_mnn = torch.ones_like(xy0_closest_dist) * float("inf")
+    xy1_closest_dist_mnn = torch.ones_like(xy1_closest_dist) * float("inf")
     xy0_closest_dist_mnn[mnn_idx[:, 0]] = xy0_closest_dist[mnn_idx[:, 0]]
     xy1_closest_dist_mnn[mnn_idx[:, 1]] = xy1_closest_dist[mnn_idx[:, 1]]
     return (
@@ -227,12 +227,12 @@ def find_distance_matrices_between_points_and_their_projections(
         xy0_proj.ndim == 2 and xy1_proj.ndim == 2
     ), f"xy0_proj and xy1_proj must be 2D tensors, got {xy0_proj.ndim} and {xy1_proj.ndim}"
 
-    # ? distance between all the reprojected points
-    dist0 = th.cdist(
-        xy0.to(th.float), xy1_proj, compute_mode="donot_use_mm_for_euclid_dist"
+    # distance between all the reprojected points
+    dist0 = torch.cdist(
+        xy0.to(torch.float), xy1_proj, compute_mode="donot_use_mm_for_euclid_dist"
     )  # n0 x n1
-    dist1 = th.cdist(
-        xy0_proj, xy1.to(th.float), compute_mode="donot_use_mm_for_euclid_dist"
+    dist1 = torch.cdist(
+        xy0_proj, xy1.to(torch.float), compute_mode="donot_use_mm_for_euclid_dist"
     )  # n0 x n1
     dist0[dist0.isnan()] = float("+inf")
     dist1[dist1.isnan()] = float("+inf")
@@ -250,39 +250,43 @@ def mutual_nearest_neighbors_from_score_matrix(
         ratio_test: ratio test to apply to the score matrix
     Returns:
         mnn: mutual nearest neighbors matrix
-            Bxn0xn1 th.bool
+            Bxn0xn1 torch.bool
     """
     assert score_mat.ndim == 3
     B, n0, n1 = score_mat.shape
     if n0 == 0 or n1 == 0:
-        return score_mat.new_zeros((B, n0, n1), dtype=th.bool)
+        return score_mat.new_zeros((B, n0, n1), dtype=torch.bool)
 
     device = score_mat.device
     score_mat = score_mat.clone()
     score_mat[score_mat.isnan()] = float("-inf")
 
-    # ? get the closest ones for each row and column
-    # ? each row is the score between the a descriptor from img0 and all the others in img1
-    # ? each column is the score between the a descriptor from img1 and all the others in img0
+    # get the closest ones for each row and column
+    # each row is the score between the a descriptor from img0 and all the others in img1
+    # each column is the score between the a descriptor from img1 and all the others in img0
     nn0_value, nn0_idx = score_mat.max(2)  # (B,n0) (B,n0) with values [0, n1[
     nn1_value, nn1_idx = score_mat.max(1)  # (B,n1) (B,n1) with values [0, n0[
 
     nn0_idx[nn0_value == float("-inf")] = n1  # (B,n0) with values [0, n1]
     nn1_idx[nn1_value == float("-inf")] = n0  # (B,n1) with values [0, n0]
 
-    nn0_matrix = th.zeros((B, n0 + 1, n1 + 1), dtype=th.bool, device=device)  # Bxn0xn1
+    nn0_matrix = torch.zeros(
+        (B, n0 + 1, n1 + 1), dtype=torch.bool, device=device
+    )  # Bxn0xn1
     nn0_matrix[:, :-1, :].scatter_(2, nn0_idx[:, :, None], True)
 
-    nn1_matrix = th.zeros((B, n0 + 1, n1 + 1), dtype=th.bool, device=device)  # Bxn0xn1
+    nn1_matrix = torch.zeros(
+        (B, n0 + 1, n1 + 1), dtype=torch.bool, device=device
+    )  # Bxn0xn1
     nn1_matrix[:, :, :-1].scatter_(1, nn1_idx[:, None, :], True)
 
-    # ? compose the two matrices
+    # compose the two matrices
     mnn_matrix = nn0_matrix * nn1_matrix
 
-    # ? drop the bins
+    # drop the bins
     mnn_matrix = mnn_matrix[:, :-1, :-1]
 
-    # ? remove the ones with score less than the min score
+    # remove the ones with score less than the min score
     mnn_matrix = mnn_matrix * (score_mat > min_score)
 
     if ratio_test < 1.0:
@@ -309,7 +313,7 @@ def mutual_nearest_neighbors_from_dist_matrices(dist0: Tensor, dist1: Tensor) ->
             Bxn0xn1
     Returns:
         mnn: mutual nearest neighbors matrix
-            Bxn0xn1 th.bool
+            Bxn0xn1 torch.bool
     Raises:
         None
     """
@@ -318,28 +322,28 @@ def mutual_nearest_neighbors_from_dist_matrices(dist0: Tensor, dist1: Tensor) ->
 
     B, n0, n1 = dist0.shape
     if n0 == 0 or n1 == 0:
-        return dist0.new_zeros((B, n0, n1), dtype=th.bool)
+        return dist0.new_zeros((B, n0, n1), dtype=torch.bool)
 
-    # ? get the closest ones for each row and column
+    # get the closest ones for each row and column
     dst0, idx0 = dist0.min(dim=2, keepdim=True)  # (B,n0,1), (B,n0,1)
     dst1, idx1 = dist1.min(dim=1, keepdim=True)  # (B,1,n1), (B,1,n1)
-    # ? set the indexes for infinite distance such that the scatter puts a one in the bin
+    # set the indexes for infinite distance such that the scatter puts a one in the bin
     idx0[dst0 == float("+inf")] = n1
     idx1[dst1 == float("+inf")] = n0
 
-    closest0_matrix = th.zeros(
-        (B, n0 + 1, n1 + 1), dtype=th.bool, device=device
+    closest0_matrix = torch.zeros(
+        (B, n0 + 1, n1 + 1), dtype=torch.bool, device=device
     )  # B,n0+1,n1+1
-    closest1_matrix = th.zeros(
-        (B, n0 + 1, n1 + 1), dtype=th.bool, device=device
+    closest1_matrix = torch.zeros(
+        (B, n0 + 1, n1 + 1), dtype=torch.bool, device=device
     )  # B,n0+1,n1+1
 
-    # ? build the closest one matrix for each kpts0 (every row is dist from a kpts0_i and all the others kpts1)
-    # ? build the closest one matrix for each kpts1 (every row is dist from a kpts1_i and all the others kpts0)
+    # build the closest one matrix for each kpts0 (every row is dist from a kpts0_i and all the others kpts1)
+    # build the closest one matrix for each kpts1 (every row is dist from a kpts1_i and all the others kpts0)
     closest0_matrix.scatter_(2, idx0, True)
     closest1_matrix.scatter_(1, idx1, True)
 
-    # ? by multiplying the two matrices only the mutual-nearest-neighbours are selected
+    # by multiplying the two matrices only the mutual-nearest-neighbours are selected
     mnn_matrix = closest0_matrix * closest1_matrix
 
     mnn_matrix = mnn_matrix[:, :-1, :-1]
@@ -349,13 +353,13 @@ def mutual_nearest_neighbors_from_dist_matrices(dist0: Tensor, dist1: Tensor) ->
 
 @dataclass
 class MatchingMatrix:
-    proposed: th.Tensor
-    correct: th.Tensor
-    wrong: th.Tensor
-    mismatched: th.Tensor
-    inexistent: th.Tensor
-    unsure: th.Tensor
-    score: Optional[th.Tensor] = None
+    proposed: torch.Tensor
+    correct: torch.Tensor
+    wrong: torch.Tensor
+    mismatched: torch.Tensor
+    inexistent: torch.Tensor
+    unsure: torch.Tensor
+    score: Optional[torch.Tensor] = None
 
     def __getitem__(self, b: int = 0):
         return MatchingMatrix(
@@ -397,38 +401,38 @@ def compute_correct_wrong_mismatched_inexistent_unsure_matches(
     ), f"{matching_matrix.shape[2]} != {GT_matching_matrix_with_bins.shape[2] - 1}"
     assert matching_matrix.ndim == 3, f"{matching_matrix.ndim} != 3"
     assert (
-        matching_matrix.dtype == th.bool
-        and GT_matching_matrix_with_bins.dtype == th.bool
-    ), f"{matching_matrix.dtype} != {th.bool} or {GT_matching_matrix_with_bins.dtype} != {th.bool}"
+        matching_matrix.dtype == torch.bool
+        and GT_matching_matrix_with_bins.dtype == torch.bool
+    ), f"{matching_matrix.dtype} != {torch.bool} or {GT_matching_matrix_with_bins.dtype} != {torch.bool}"
 
     GT_matching_matrix = GT_matching_matrix_with_bins[:, :-1, :-1]
     B, H, W = GT_matching_matrix.shape
 
     matching_matrix_correct = matching_matrix * GT_matching_matrix
 
-    # ? known_mask is true for each row and column where there is a one, either as match or in the bin
+    # known_mask is true for each row and column where there is a one, either as match or in the bin
     known_mask_with_bins = GT_matching_matrix_with_bins.any(1, keepdim=True).repeat(
         1, H + 1, 1
     ) + GT_matching_matrix_with_bins.any(2, keepdim=True).repeat(1, 1, W + 1)
     known_mask = known_mask_with_bins[:, :-1, :-1]
 
-    # ? match_mask is true for each row and column where there is a GT match
+    # match_mask is true for each row and column where there is a GT match
     any_match_mask = GT_matching_matrix.any(1, keepdim=True).repeat(
         1, H, 1
     ) + GT_matching_matrix.any(2, keepdim=True).repeat(1, 1, W)
 
-    # ? matching_matrix_unsure is true when one of the proposed matches does not correspond either to a match or to an unmatch
+    # matching_matrix_unsure is true when one of the proposed matches does not correspond either to a match or to an unmatch
     matching_matrix_unsure = matching_matrix * ~known_mask
 
-    # ? matching_matrix_wrong is true when a proposed match is wrong (either a mismatch or inexistent)
+    # matching_matrix_wrong is true when a proposed match is wrong (either a mismatch or inexistent)
     matching_matrix_wrong = (
         (matching_matrix ^ GT_matching_matrix) * matching_matrix
     ) * known_mask
 
-    # ? mismatch_mask is true when a point that actually had a possible correct match is mismatched
+    # mismatch_mask is true when a point that actually had a possible correct match is mismatched
     matching_matrix_mismatched = matching_matrix_wrong * any_match_mask
 
-    # ? inexistent_mask is true when two keypoints that had not GT match are matched
+    # inexistent_mask is true when two keypoints that had not GT match are matched
     matching_matrix_inexistent = matching_matrix_wrong * ~any_match_mask
 
     output = MatchingMatrix(
@@ -452,8 +456,8 @@ def add_bins_to_matching_matrix(matching_matrix: Tensor) -> Tensor:
             B,n0+1,n1+1
     """
     B, H, W = matching_matrix.shape
-    matching_matrix_with_bins = th.zeros(
-        (B, H + 1, W + 1), device=matching_matrix.device, dtype=th.bool
+    matching_matrix_with_bins = torch.zeros(
+        (B, H + 1, W + 1), device=matching_matrix.device, dtype=torch.bool
     )
     matching_matrix_with_bins[:, :-1, :-1] = matching_matrix.clone()
     matching_matrix_with_bins[:, :-1, -1] = ~matching_matrix.any(-1)
@@ -536,8 +540,8 @@ def extract_maxima_from_map(
         score_map = score_map.clone().squeeze(1)
     assert nms_radius % 2 == 1, "nms_radius must be odd"
 
-    # ? if there are nans in the border of the score map, the border of the max_pool+kernel_size//2 will be nan
-    # ? this thing make sense as if the max was really in the edge before the nan, we can't anyway trust it
+    # if there are nans in the border of the score map, the border of the max_pool+kernel_size//2 will be nan
+    # this thing make sense as if the max was really in the edge before the nan, we can't anyway trust it
     max_pool = F.max_pool2d(
         score_map[:, None, :, :],
         kernel_size=nms_radius,
@@ -548,11 +552,11 @@ def extract_maxima_from_map(
     )  # BxHxW
     maxima_mask = score_map == max_pool  # BxHxW
 
-    # ? remove border detections
+    # remove border detections
     if border == 0:
         map_masked = score_map
     else:
-        mask = th.zeros_like(score_map, dtype=th.bool)  # BxHxW
+        mask = torch.zeros_like(score_map, dtype=torch.bool)  # BxHxW
         mask[:, border:-border, border:-border] = True
         map_masked = score_map * mask
 
@@ -566,16 +570,16 @@ def extract_maxima_from_map(
     kpts_list = []
     scores_list = []
     for b in range(B):
-        # ? transpose the map before the nonzero such that the coordinates are given in (x, y)
-        kpts = th.nonzero(maxima_mask[b].permute(1, 0))  # Nx2  (x,y)
+        # transpose the map before the nonzero such that the coordinates are given in (x, y)
+        kpts = torch.nonzero(maxima_mask[b].permute(1, 0))  # Nx2  (x,y)
         kpts_scores = score_map[b][kpts[:, 1], kpts[:, 0]]  # N
 
-        # ? if there are too many keypoints, keep only the ones with higher score, in any case sort them by score
-        top_kpts_idxs = th.topk(kpts_scores, min(max_kpts, kpts.shape[0]))[1]
+        # if there are too many keypoints, keep only the ones with higher score, in any case sort them by score
+        top_kpts_idxs = torch.topk(kpts_scores, min(max_kpts, kpts.shape[0]))[1]
         kpts = kpts[top_kpts_idxs]
         kpts_scores = kpts_scores[top_kpts_idxs]
 
-        # ? add +0.5 to the point to match the convention top-left center = (0.5, 0.5)
+        # add +0.5 to the point to match the convention top-left center = (0.5, 0.5)
         kpts = kpts.float() + 0.5
 
         kpts_list.append(kpts)
@@ -597,7 +601,7 @@ def generate_round_kernel_indices(kernel_radius: int) -> Tensor:
             r = i**2 + j**2
             if r <= kernel_radius**2:
                 mask_idxs.append((j, i))
-    mask_idxs = th.tensor(mask_idxs, dtype=th.long).view(
+    mask_idxs = torch.tensor(mask_idxs, dtype=torch.long).view(
         -1, 2
     )  # mask_area x 2     (y, x)
 

@@ -1,7 +1,7 @@
 from typing import Dict, Tuple
 
 from torch import Tensor
-import torch as th
+import torch
 
 from utils.utils_2D import (
     add_bins_to_matching_matrix,
@@ -16,13 +16,13 @@ def get_margin_and_ratio_from_scores_and_mnn_matrix(
     second_best_scores0: Tensor,
     second_best_scores1: Tensor,
 ) -> Tuple[Tensor, Tensor]:
-    batch_matches, rows_matches, column_matches = th.where(
+    batch_matches, rows_matches, column_matches = torch.where(
         mnn_matrix
     )  # (n_matches), (n_matches), (n_matches)
     best_scores0_matches = best_scores0[
         batch_matches, rows_matches
     ]  # n_matches_proposed
-    # ? by definition of mnn, the best_scores0_matches are exactly the same as best_scores0_matches
+    # by definition of mnn, the best_scores0_matches are exactly the same as best_scores0_matches
     # best_scores1_matches = best_scores1[batch_matches, column_matches]  # n_matches_proposed
     second_best_scores0_matches = second_best_scores0[
         batch_matches, rows_matches
@@ -30,17 +30,17 @@ def get_margin_and_ratio_from_scores_and_mnn_matrix(
     second_best_scores1_matches = second_best_scores1[
         batch_matches, column_matches
     ]  # n_matches_proposed
-    margin = best_scores0_matches - th.max(
+    margin = best_scores0_matches - torch.max(
         second_best_scores0_matches, second_best_scores1_matches
     )  # n_matches_proposed
     ratio = (
-        th.max(second_best_scores0_matches, second_best_scores1_matches)
+        torch.max(second_best_scores0_matches, second_best_scores1_matches)
         / best_scores0_matches
     )  # n_matches_proposed
     return margin, ratio
 
 
-@th.no_grad()
+@torch.no_grad()
 def compute_stats(
     score_matrix_des: Tensor,
     matching_matrix_GT_with_bins: Tensor,
@@ -61,7 +61,7 @@ def compute_stats(
 
     matching_matrix_GT_with_bins = add_bins_to_matching_matrix(GT_matching_mask)
 
-    # ? compute all the possible masks
+    # compute all the possible masks
     matching_matrix = mutual_nearest_neighbors_from_score_matrix(
         score_matrix_des, min_score=min_score, ratio_test=ratio_test
     )  # B,n_kpts0,n_kpts1
@@ -69,7 +69,7 @@ def compute_stats(
         matching_matrix, matching_matrix_GT_with_bins
     )
 
-    # ? compute the sum
+    # compute the sum
     n_matches_gt = GT_matching_mask.sum() / B
     n_matches_proposed = matching_matrix_agg.proposed.sum() / B
     n_matches_correct = matching_matrix_agg.correct.sum() / B
@@ -78,7 +78,7 @@ def compute_stats(
     n_matches_inexistent = matching_matrix_agg.inexistent.sum() / B
     n_matches_unsure = matching_matrix_agg.unsure.sum() / B
 
-    # ? index the scores
+    # index the scores
     scores_GT_matches = score_matrix_des[GT_matching_mask]  # n_matches_gt_fullbatch
     scores_all = score_matrix_des.view(-1)
     scores_negative_all = score_matrix_des[~GT_matching_mask]
@@ -88,9 +88,9 @@ def compute_stats(
     scores_matches_mismatched = score_matrix_des[matching_matrix_agg.mismatched]
     scores_matches_inexistent = score_matrix_des[matching_matrix_agg.inexistent]
 
-    # ? remove nan values
-    scores_all = scores_all[~th.isnan(scores_all)]
-    scores_negative_all = scores_negative_all[~th.isnan(scores_negative_all)]
+    # remove nan values
+    scores_all = scores_all[~torch.isnan(scores_all)]
+    scores_negative_all = scores_negative_all[~torch.isnan(scores_negative_all)]
 
     if scores_GT_matches.isnan().any():
         print("WARNING: nan values in scores_GT_matches, this should never happen")
@@ -111,16 +111,16 @@ def compute_stats(
             "WARNING: nan values in scores_matches_inexistent, this should never happen"
         )
 
-    # ? compute stats
+    # compute stats
     matches_precision = n_matches_correct / n_matches_proposed
     matches_recall = n_matches_correct / n_matches_gt
 
-    # ? compute the margins
+    # compute the margins
     score_matrix_des_with_inf = score_matrix_des.clone()
     score_matrix_des_with_inf[score_matrix_des_with_inf.isnan()] = float("-inf")
 
-    best_two_scores0 = th.topk(score_matrix_des_with_inf, 2, dim=-1)[0]
-    best_two_scores1 = th.topk(score_matrix_des_with_inf, 2, dim=-2)[0]
+    best_two_scores0 = torch.topk(score_matrix_des_with_inf, 2, dim=-1)[0]
+    best_two_scores1 = torch.topk(score_matrix_des_with_inf, 2, dim=-2)[0]
     best_scores0, second_best_scores0 = (
         best_two_scores0[:, :, 0],
         best_two_scores0[:, :, 1],
@@ -130,28 +130,28 @@ def compute_stats(
         best_two_scores1[:, 1, :],
     )  # (B,n_kpts1) (B,n_kpts1)
 
-    # ? margin for all the proposed matches
+    # margin for all the proposed matches
     margin_proposed, ratio_proposed = get_margin_and_ratio_from_scores_and_mnn_matrix(
         matching_matrix_agg.proposed,
         best_scores0,
         second_best_scores0,
         second_best_scores1,
     )
-    # ? correct matches margin
+    # correct matches margin
     margin_correct, ratio_correct = get_margin_and_ratio_from_scores_and_mnn_matrix(
         matching_matrix_agg.correct,
         best_scores0,
         second_best_scores0,
         second_best_scores1,
     )
-    # ? wrong matches margin
+    # wrong matches margin
     margin_wrong, ratio_wrong = get_margin_and_ratio_from_scores_and_mnn_matrix(
         matching_matrix_agg.wrong,
         best_scores0,
         second_best_scores0,
         second_best_scores1,
     )
-    # ? mismatched matches margin
+    # mismatched matches margin
     margin_mismatched, ratio_mismatched = (
         get_margin_and_ratio_from_scores_and_mnn_matrix(
             matching_matrix_agg.mismatched,
@@ -160,7 +160,7 @@ def compute_stats(
             second_best_scores1,
         )
     )
-    # ? inexistent matches margin
+    # inexistent matches margin
     margin_inexistent, ratio_inexistent = (
         get_margin_and_ratio_from_scores_and_mnn_matrix(
             matching_matrix_agg.inexistent,
@@ -170,23 +170,23 @@ def compute_stats(
         )
     )
 
-    # ? find out how many possible mismatched have been shielded by a correct match
-    # ? we do this counting how many column have the max score that correspond to a column where there is a correct match
+    # find out how many possible mismatched have been shielded by a correct match
+    # we do this counting how many column have the max score that correspond to a column where there is a correct match
     matches_correct_idx = (
         matching_matrix_agg.correct.nonzero()
     )  # (n_matches_correct, 2)
-    # ? we first create a mask with a one in the position where the score is the max for that row
+    # we first create a mask with a one in the position where the score is the max for that row
     row_max_mask = (
         score_matrix_des_with_inf
         == score_matrix_des_with_inf.max(dim=-1, keepdim=True)[0]
     ) * score_matrix_des_with_inf.isfinite()  # (B,n_kpts0,n_kpts1)
-    # ? we then index only the columns where there was a correct match, and sum over those columns
-    # ? (subtracting always one as we do not want to count the correct match)
+    # we then index only the columns where there was a correct match, and sum over those columns
+    # (subtracting always one as we do not want to count the correct match)
     masked_columns = row_max_mask[
         matches_correct_idx[:, 0], :, matches_correct_idx[:, 2]
     ]  # n_masked_columns, n_kpts0
     n_masked_by_columns = masked_columns.sum() - masked_columns.shape[0]
-    # ? do the same by columns
+    # do the same by columns
     column_max_mask = (
         score_matrix_des_with_inf
         == score_matrix_des_with_inf.max(dim=-2, keepdim=True)[0]
@@ -197,14 +197,14 @@ def compute_stats(
     n_masked_by_rows = masked_rows.sum() - masked_rows.shape[0]
     n_masked = n_masked_by_columns + n_masked_by_rows
 
-    # # ? reorder the descriptors of batch0 to generate a nice score matrix to log
-    # idx0, idx1 = th.where(GT_matching_mask[0])  # (n_matches_gt_batch0), (n_matches_gt_batch0)
-    # mask0_not_matched = th.ones(n_kpts0, dtype=th.bool, device=DEVICE)
-    # mask1_not_matched = th.ones(n_kpts1, dtype=th.bool, device=DEVICE)
+    # # reorder the descriptors of batch0 to generate a nice score matrix to log
+    # idx0, idx1 = torch.where(GT_matching_mask[0])  # (n_matches_gt_batch0), (n_matches_gt_batch0)
+    # mask0_not_matched = torch.ones(n_kpts0, dtype=torch.bool, device=DEVICE)
+    # mask1_not_matched = torch.ones(n_kpts1, dtype=torch.bool, device=DEVICE)
     # mask0_not_matched[idx0] = False
     # mask1_not_matched[idx1] = False
-    # des0_batch0_ordered = th.cat((des0[0][idx0], des0[0][mask0_not_matched]))  # n_kpts0,des_dim
-    # des1_batch0_ordered = th.cat((des1[0][idx1], des1[0][mask1_not_matched]))  # n_kpts1,des_dim
+    # des0_batch0_ordered = torch.cat((des0[0][idx0], des0[0][mask0_not_matched]))  # n_kpts0,des_dim
+    # des1_batch0_ordered = torch.cat((des1[0][idx1], des1[0][mask1_not_matched]))  # n_kpts1,des_dim
     # score_matrix_batch0 = des0_batch0_ordered @ des1_batch0_ordered.T  # n_kpts0,n_kpts1
 
     numeric_stats = {

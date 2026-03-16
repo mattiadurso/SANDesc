@@ -1,6 +1,6 @@
 from typing import Optional
 
-import torch as th
+import torch
 from matplotlib import pyplot as plt
 from torch import Tensor
 
@@ -12,7 +12,7 @@ from utils.utils_visualization import plot_image_pair_with_keypoints
 import wandb
 
 
-@th.no_grad()
+@torch.no_grad()
 def log_match_plot(
     img0: Tensor,
     img1: Tensor,
@@ -38,18 +38,18 @@ def log_match_plot(
         )
         matching_matrix_agg = matching_matrix_agg[0]
 
-        # ? find the matches color
+        # find the matches color
         matches_correct_idxs = matching_matrix_agg.correct.nonzero()
         matches_mismatch_idxs = matching_matrix_agg.mismatched.nonzero()
         matches_inexistent_idxs = matching_matrix_agg.inexistent.nonzero()
         matches_unsure_idxs = matching_matrix_agg.unsure.nonzero()
 
-        matches_correct_color = th.tensor([0.2, 0.8, 0.2])  # lime
-        matches_mismatch_color = th.tensor([1.0, 0.8, 0.0])  # orange
-        matches_inexistent_color = th.tensor([1.0, 0.0, 1.0])  # magenta
-        matches_unsure_color = th.tensor([0.0, 0.0, 1.0])  # blue
+        matches_correct_color = torch.tensor([0.2, 0.8, 0.2])  # lime
+        matches_mismatch_color = torch.tensor([1.0, 0.8, 0.0])  # orange
+        matches_inexistent_color = torch.tensor([1.0, 0.0, 1.0])  # magenta
+        matches_unsure_color = torch.tensor([0.0, 0.0, 1.0])  # blue
 
-        matches = th.cat(
+        matches = torch.cat(
             (
                 matches_correct_idxs,
                 matches_mismatch_idxs,
@@ -58,7 +58,7 @@ def log_match_plot(
             ),
             dim=0,
         )
-        matches_color = th.cat(
+        matches_color = torch.cat(
             (
                 matches_correct_color.repeat(matches_correct_idxs.shape[0], 1),
                 matches_mismatch_color.repeat(matches_mismatch_idxs.shape[0], 1),
@@ -68,8 +68,8 @@ def log_match_plot(
             dim=0,
         )
     else:
-        matches = th.zeros((0, 2), dtype=th.long, device=img0.device)
-        matches_color = th.zeros((0, 3), dtype=th.float, device=img0.device)
+        matches = torch.zeros((0, 2), dtype=torch.long, device=img0.device)
+        matches_color = torch.zeros((0, 3), dtype=torch.float, device=img0.device)
 
     fig, axes = plot_image_pair_with_keypoints(
         img0[0], img1[0], kpts0[0], kpts1[0], matches, matches_color

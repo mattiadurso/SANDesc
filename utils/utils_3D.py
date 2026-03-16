@@ -4,7 +4,7 @@ from typing import Tuple, Union, Optional
 
 import cv2
 from torch import Tensor
-import torch as th
+import torch
 import numpy as np
 
 from utils.utils_2D import grid_sample_nan
@@ -31,7 +31,7 @@ def P_from_R_t(R: Tensor, t: Tensor) -> Tensor:
         R.ndim == 3 and t.ndim == 2
     ), f"Expected R to be Bx3x3 and t to be Bx3, got R={R.shape} and t={t.shape}"
     B = R.shape[0]
-    P = th.eye(4, device=R.device)[None, ...].repeat(B, 1, 1)
+    P = torch.eye(4, device=R.device)[None, ...].repeat(B, 1, 1)
     P[:, :3, :3] = R
     P[:, :3, 3] = t
     return P
@@ -70,15 +70,15 @@ def invert_P(P: Tensor) -> Tensor:
     B = P.shape[0]
     R = P[:, 0:3, 0:3]
     t = P[:, 0:3, 3:4]
-    P_inv = th.cat((R.permute(0, 2, 1), -R.permute(0, 2, 1) @ t), dim=2)
-    P_inv = th.cat(
+    P_inv = torch.cat((R.permute(0, 2, 1), -R.permute(0, 2, 1) @ t), dim=2)
+    P_inv = torch.cat(
         (P_inv, P.new_tensor([[0.0, 0.0, 0.0, 1.0]])[None, ...].repeat(B, 1, 1)), dim=1
     )
     return P_inv
 
 
 def to_homogeneous(xy: Tensor) -> Tensor:
-    return th.cat((xy, th.ones_like(xy[..., 0:1])), dim=-1)
+    return torch.cat((xy, torch.ones_like(xy[..., 0:1])), dim=-1)
 
 
 def from_homogeneous(points: Tensor, eps: float = 1e-8) -> Tensor:
@@ -86,8 +86,8 @@ def from_homogeneous(points: Tensor, eps: float = 1e-8) -> Tensor:
     # set the results of division by zero/near-zero to 1.0
     # follow the convention of opencv:
     # https://github.com/opencv/opencv/pull/14411/files
-    mask = th.abs(z_vec) > eps
-    scale = th.where(mask, 1.0 / (z_vec + eps), th.ones_like(z_vec))
+    mask = torch.abs(z_vec) > eps
+    scale = torch.where(mask, 1.0 / (z_vec + eps), torch.ones_like(z_vec))
     output = scale * points[..., :-1]
     return output
 
@@ -111,13 +111,16 @@ def unproject_to_virtual_plane(
         original_type = xy.dtype
         # Bx3x3 * Bx3xn = Bx3xn  -> Bxnx3 after permute
         xyz = (
-            (th.inverse(K.to(th.double)) @ (xy_hom.permute(0, 2, 1).to(th.double)))
+            (
+                torch.inverse(K.to(torch.double))
+                @ (xy_hom.permute(0, 2, 1).to(torch.double))
+            )
             .permute(0, 2, 1)
             .to(original_type)
         )
     else:
         # Bx3x3 * Bx3xn = Bx3xn  -> Bxnx3 after permute
-        xyz = (th.inverse(K) @ (xy_hom.permute(0, 2, 1))).permute(0, 2, 1)
+        xyz = (torch.inverse(K) @ (xy_hom.permute(0, 2, 1))).permute(0, 2, 1)
 
     return xyz
 
@@ -164,9 +167,9 @@ def change_reference_3D_points(
     xyz0_hom = to_homogeneous(xyz0)  # Bxnx4
     if cast_to_double:
         original_dtype = xyz0.dtype
-        P0_inv = invert_P(P0.to(th.double))
+        P0_inv = invert_P(P0.to(torch.double))
         xyz1_hom = (
-            P1.to(th.double) @ P0_inv @ xyz0_hom.permute(0, 2, 1).to(th.double)
+            P1.to(torch.double) @ P0_inv @ xyz0_hom.permute(0, 2, 1).to(torch.double)
         )  # Bx4xn
         xyz1 = from_homogeneous(xyz1_hom.permute(0, 2, 1)).to(original_dtype)  # Bxnx3
     else:
@@ -201,9 +204,9 @@ def project_to_2D(
     if cast_to_double:
         original_dtype = xyz.dtype
         # Bx3x3 * Bx3xn =  Bx3xn  -> Bxnx3 after permutation
-        xy_proj_hom = (K.to(th.double) @ xyz.permute(0, 2, 1).to(th.double)).permute(
-            0, 2, 1
-        )
+        xy_proj_hom = (
+            K.to(torch.double) @ xyz.permute(0, 2, 1).to(torch.double)
+        ).permute(0, 2, 1)
         xy_proj = from_homogeneous(xy_proj_hom).to(original_dtype)  # Bxnx2
     else:
         xy_proj_hom = (K @ xyz.permute(0, 2, 1)).permute(
@@ -212,9 +215,9 @@ def project_to_2D(
         xy_proj = from_homogeneous(xy_proj_hom)  # Bxnx2
 
     if img_shape is not None:
-        # ? filter points that fall outside the second image but have depth valid
-        # ? as the comparison of a 'nan' values with something else is always false, only the points that had valid
-        # ? depth will appear in mask_outside
+        # filter points that fall outside the second image but have depth valid
+        # as the comparison of a 'nan' values with something else is always false, only the points that had valid
+        # depth will appear in mask_outside
         mask_outside = (
             (xy_proj[..., 0] < 0)
             + (xy_proj[..., 0] > img_shape[1])
@@ -264,18 +267,18 @@ def reproject_2D_2D(
             second image
             Bxn  bool
     """
-    # ? interpolate depths
+    # interpolate depths
     selected_depths0, mask_invalid_depth0 = grid_sample_nan(
         xy0, depthmap0, mode=mode
     )  # Bxn, Bxn
 
-    # ? use the depth to define the 3D coordinates of points in the ref system of camera0
+    # use the depth to define the 3D coordinates of points in the ref system of camera0
     xyz0 = unproject_to_3D(xy0, K0, selected_depths0)  # Bxnx3
 
-    # ? change the ref system of the 3d point to camera1
+    # change the ref system of the 3d point to camera1
     xyz0_proj = change_reference_3D_points(xyz0, P0, P1)  # Bxnx3
 
-    # ? project the point in the destination image
+    # project the point in the destination image
     if img1_shape is not None:
         xy0_proj, mask_outside0 = project_to_2D(
             xyz0_proj, K1, img1_shape
@@ -324,21 +327,21 @@ def depth_consistency_check(
             nan where the depth is inconsistent
             Bxnx3
     """
-    # ? interpolate depths in depth1
+    # interpolate depths in depth1
     selected_depths1, mask_invalid_depth1 = grid_sample_nan(
         xy0_proj, depthmap1, mode=mode
     )  # Bxn, Bxn
     xyz1 = unproject_to_3D(xy0_proj, K1, selected_depths1)  # Bxnx3
 
-    # ? change the ref system of the 3d point to camera1
+    # change the ref system of the 3d point to camera1
     xyz1_proj = change_reference_3D_points(xyz1, P1, P0)
 
-    # ? check for depth inconsistencies
-    relative_depth_error = th.abs(selected_depths0 - xyz1_proj[:, :, 2]) / th.min(
+    # check for depth inconsistencies
+    relative_depth_error = torch.abs(selected_depths0 - xyz1_proj[:, :, 2]) / torch.min(
         selected_depths0, xyz1_proj[:, :, 2]
     )  # Bxn
-    # ? we check with > because in case of nan in relative_depth_error (coming from xyz0 or xyz1_proj) we don't want
-    # ? this to be marked as inconsistent depth
+    # we check with > because in case of nan in relative_depth_error (coming from xyz0 or xyz1_proj) we don't want
+    # this to be marked as inconsistent depth
     mask_inconsistent_depth = relative_depth_error > max_relative_depth_error  # Bxn
     xyz1_proj[mask_inconsistent_depth[:, :, None].expand(-1, -1, 3)] = float(
         "nan"
@@ -416,21 +419,21 @@ def compute_GT_matches_matrix_3D(
     device = xy0.device
     B, n0, n1 = xy0.shape[0], xy0.shape[1], xy1.shape[1]
 
-    # ? ==================== img0 -> img1 ==============================================================================
-    # ? interpolate depths
+    # ==================== img0 -> img1 ==============================================================================
+    # interpolate depths
     selected_depths0, mask_invalid_depth0 = grid_sample_nan(
         xy0, depthmap0, mode=mode
     )  # Bxn, Bxn
-    # ? use the depth to define the 3D coordinates of points in the ref system of camera0
+    # use the depth to define the 3D coordinates of points in the ref system of camera0
     xyz0 = unproject_to_3D(xy0, K0, selected_depths0)  # Bxnx3
-    # ? change the ref system of the 3d point to camera1
+    # change the ref system of the 3d point to camera1
     xyz0_proj = change_reference_3D_points(xyz0, P0, P1)  # Bxnx3
-    # ? project the point in the destination image. The index 1 of mask_outside1 refers to the fact that this is
-    # ? computed in img1 space
+    # project the point in the destination image. The index 1 of mask_outside1 refers to the fact that this is
+    # computed in img1 space
     xy0_proj, mask_outside1 = project_to_2D(
         xyz0_proj, K1, depthmap1.shape[1:]
     )  # Bxnx2, Bxnx2
-    # ? check for depth consistency and set xy0_proj to nan if inconsistent
+    # check for depth consistency and set xy0_proj to nan if inconsistent
     mask_inconsistent_depth0 = depth_consistency_check(
         xy0_proj,
         selected_depths0,
@@ -444,21 +447,21 @@ def compute_GT_matches_matrix_3D(
         0
     ]  # Bxn0
     xy0_proj[mask_inconsistent_depth0] = float("nan")
-    # ? ==================== img1 -> img0 ==============================================================================
-    # ? interpolate depths
+    # ==================== img1 -> img0 ==============================================================================
+    # interpolate depths
     selected_depths1, mask_invalid_depth1 = grid_sample_nan(
         xy1, depthmap1, mode=mode
     )  # Bxn, Bxn
-    # ? use the depth to define the 3D coordinates of points in the ref system of camera1
+    # use the depth to define the 3D coordinates of points in the ref system of camera1
     xyz1 = unproject_to_3D(xy1, K1, selected_depths1)  # Bxnx3
-    # ? change the ref system of the 3d point to camera0
+    # change the ref system of the 3d point to camera0
     xyz1_proj = change_reference_3D_points(xyz1, P1, P0)  # Bxnx3
-    # ? project the point in the destination image. The index 0 of mask_outside0 refers to the fact that this is
-    # ? computed in img0 space
+    # project the point in the destination image. The index 0 of mask_outside0 refers to the fact that this is
+    # computed in img0 space
     xy1_proj, mask_outside0 = project_to_2D(
         xyz1_proj, K0, depthmap0.shape[1:]
     )  # Bxnx2, Bxnx2
-    # ? check for depth consistency and set xy1_proj to nan if inconsistent
+    # check for depth consistency and set xy1_proj to nan if inconsistent
     mask_inconsistent_depth1 = depth_consistency_check(
         xy1_proj,
         selected_depths1,
@@ -473,75 +476,75 @@ def compute_GT_matches_matrix_3D(
     ]  # Bxn1
     xy1_proj[mask_inconsistent_depth1] = float("nan")
 
-    # ? compute the inconsistent depth overall map
+    # compute the inconsistent depth overall map
     mask_inconsistent_depth = (
         mask_inconsistent_depth0[:, :, None] + mask_inconsistent_depth1[:, None, :]
     )  # Bxn0xn1
 
-    # ? compute the distances in both images
-    dist0 = th.cdist(
+    # compute the distances in both images
+    dist0 = torch.cdist(
         xy0, xy1_proj, compute_mode="donot_use_mm_for_euclid_dist"
     )  # Bxn0xn1
-    dist1 = th.cdist(
+    dist1 = torch.cdist(
         xy0_proj, xy1, compute_mode="donot_use_mm_for_euclid_dist"
     )  # Bxn0xn1
 
-    # ? set to inf all the distances that result nan
+    # set to inf all the distances that result nan
     dist0[dist0.isnan()] = float("+inf")
     dist1[dist1.isnan()] = float("+inf")
 
-    # ? True where a pair projected-detected is really close
+    # True where a pair projected-detected is really close
     in_radius_small0 = dist1 < max_pixel_error  # Bxn0xn1
     in_radius_small1 = dist0 < max_pixel_error  # Bxn0xn1
-    # ? True if the two pairs are inside the small radius in both images
+    # True if the two pairs are inside the small radius in both images
     in_radius_small = in_radius_small0 * in_radius_small1  # Bxn0xn1
 
-    # ? True where a pair projected-detected are withing the big threshold
+    # True where a pair projected-detected are withing the big threshold
     in_radius_big0 = dist1 < min_pixel_error_for_unmatched  # Bxn0xn1
     in_radius_big1 = dist0 < min_pixel_error_for_unmatched  # Bxn0xn1
-    # ? True for the entire columns (xy0 proj in img1) or the entire row (xy1 proj in img0) if there is only one
-    # ? neighbour within the big threshold
-    single_ngh0 = in_radius_big0.to(th.int).sum(2, keepdim=True) == 1  # Bxn0xn1
-    single_ngh1 = in_radius_big1.to(th.int).sum(1, keepdim=True) == 1  # Bxn0xn1
+    # True for the entire columns (xy0 proj in img1) or the entire row (xy1 proj in img0) if there is only one
+    # neighbour within the big threshold
+    single_ngh0 = in_radius_big0.to(torch.int).sum(2, keepdim=True) == 1  # Bxn0xn1
+    single_ngh1 = in_radius_big1.to(torch.int).sum(1, keepdim=True) == 1  # Bxn0xn1
 
-    nn0 = th.zeros(B, n0, n1, dtype=th.bool, device=device)  # Bxn0xn1
-    nn1 = th.zeros(B, n0, n1, dtype=th.bool, device=device)  # Bxn0xn1
+    nn0 = torch.zeros(B, n0, n1, dtype=torch.bool, device=device)  # Bxn0xn1
+    nn1 = torch.zeros(B, n0, n1, dtype=torch.bool, device=device)  # Bxn0xn1
     nn0_idx = dist1.min(2, keepdim=True)[1]  # Bxn0x1
     nn1_idx = dist0.min(1, keepdim=True)[1]  # Bx1xn1
-    # ? True for the nearest neighbour of every projected point
-    nn0.scatter_(2, nn0_idx, th.ones_like(nn0, dtype=th.bool))  # Bxn0xn1
-    nn1.scatter_(1, nn1_idx, th.ones_like(nn1, dtype=th.bool))  # Bxn0xn1
-    # ? True if the points is both nearest neighbour and it's the only one within the big threshold
+    # True for the nearest neighbour of every projected point
+    nn0.scatter_(2, nn0_idx, torch.ones_like(nn0, dtype=torch.bool))  # Bxn0xn1
+    nn1.scatter_(1, nn1_idx, torch.ones_like(nn1, dtype=torch.bool))  # Bxn0xn1
+    # True if the points is both nearest neighbour and it's the only one within the big threshold
     single_nn0 = nn0 * single_ngh0  # Bxn0xn1
     single_nn1 = nn1 * single_ngh1  # Bxn0xn1
     mnn_mask = nn0 * nn1  # Bxn0xn1
 
-    # ? This works the best
+    # This works the best
     if allow_multiple_matches:
         gt_matches = in_radius_small
     else:
         gt_matches = mnn_mask * in_radius_small
-    # ? This is wrong because finds multiple matches for the same
+    # This is wrong because finds multiple matches for the same
     # gt_matches = single_nn0 * in_radius_small1 + single_nn1 * in_radius_small0
-    # ? This is too much restrictive
+    # This is too much restrictive
     # gt_matches = single_nn0 * single_nn1 * in_radius_small
 
-    # ? point have depth and project out of the other image image
+    # point have depth and project out of the other image image
     bin0 = mask_outside1
     bin1 = mask_outside0
 
-    # ? point have depth and the depth is consistent, project inside the other image.
-    # ? There are no point in the other image within 5 px from the projected one
+    # point have depth and the depth is consistent, project inside the other image.
+    # There are no point in the other image within 5 px from the projected one
     bin0 += ~mask_invalid_depth0 * ~mask_inconsistent_depth0 * ~(in_radius_big0.any(2))
     bin1 += ~mask_invalid_depth1 * ~mask_inconsistent_depth1 * ~(in_radius_big1.any(1))
 
-    # ? point have depth and the depth is consistent, project inside the other image. There is only one point in the
-    # ? other image within 5 px.It has consistent depth and project out of the first image
+    # point have depth and the depth is consistent, project inside the other image. There is only one point in the
+    # other image within 5 px.It has consistent depth and project out of the first image
     bin0 += (single_nn0 * ~mask_inconsistent_depth * mask_outside0[:, None, :]).any(2)
     bin1 += (single_nn1 * ~mask_inconsistent_depth * mask_outside1[:, :, None]).any(1)
 
-    # ? point have depth and is consistent, project inside the other image. There is only one point in the other image
-    # ? within 5 px. It has depth and project inside the first image, but not within 5px from the original point
+    # point have depth and is consistent, project inside the other image. There is only one point in the other image
+    # within 5 px. It has depth and project inside the first image, but not within 5px from the original point
     bin0 += (
         single_nn0
         * ~in_radius_big1
@@ -555,8 +558,8 @@ def compute_GT_matches_matrix_3D(
         * ~mask_inconsistent_depth
     ).any(1)
 
-    # ? building the matching matrix composing gt_matches and bins
-    matching_matrix = th.zeros(B, n0 + 1, n1 + 1, device=device, dtype=th.bool)
+    # building the matching matrix composing gt_matches and bins
+    matching_matrix = torch.zeros(B, n0 + 1, n1 + 1, device=device, dtype=torch.bool)
     matching_matrix[:, :n0, :n1] = gt_matches
     matching_matrix[:, :n0, -1] = bin0
     matching_matrix[:, -1, :n1] = bin1
@@ -589,7 +592,7 @@ def scale_and_crop(
     H_out, W_out = output_shape
     K0_out = np.copy(K0)
 
-    # ? check if the crop fit in the image, otherwise upscale the image
+    # check if the crop fit in the image, otherwise upscale the image
     if (H_out / H) > 1 or (H_out / W) > 1:
         if not allow_scaling:
             raise ValueError(
@@ -597,7 +600,7 @@ def scale_and_crop(
             )
 
     if center is not None:
-        # ? check if the crop fit in the image, otherwise upscale the image
+        # check if the crop fit in the image, otherwise upscale the image
         if (H_out / H) > 1 or (H_out / W) > 1:
             scale_factor = max(H_out / H, H_out / W)
             img = cv2.resize(
@@ -608,7 +611,7 @@ def scale_and_crop(
                 interpolation=cv2.INTER_AREA,
             )
             H, W = img.shape[:2]
-            # ? correct the intrinsics scale
+            # correct the intrinsics scale
             K0_out[:2, :] *= scale_factor
             if depth is not None:
                 inv_depth = 1 / depth
@@ -623,8 +626,8 @@ def scale_and_crop(
         else:
             scale_factor = 1
 
-        # ? crop the image so that it conform to the output_shape. The cropping is centered in the center
-        # ? coordinates with a random offset
+        # crop the image so that it conform to the output_shape. The cropping is centered in the center
+        # coordinates with a random offset
         top_left_centered = center - np.array([W_out, H_out]) // 2
 
         if max_random_offset > 0:
@@ -656,7 +659,7 @@ def scale_and_crop(
         W_out,
     ), f"img.shape[:2] {img.shape[:2]} must be equal to (H_out, W_out) {(H_out, W_out)}"
 
-    # ? correct the intrinsics translation
+    # correct the intrinsics translation
     K0_out[0, 2] -= top_left[0]
     K0_out[1, 2] -= top_left[1]
 
@@ -687,14 +690,14 @@ def rotate_image_and_camera_z_axis(
         img, angle_degrees
     )
 
-    # ? correct camera
+    # correct camera
     K_rotated = K.clone()
     K_rotated[0, 2] -= left_top[0]
     K_rotated[1, 2] -= left_top[1]
 
-    # ? apply a rotation around the Z axis
-    R, T = P[:3, :3].to(th.double), P[:3, 3].to(th.double)
-    R_rotation = rot_mat(angle_degrees / 180.0 * np.pi, dtype=th.float64)
+    # apply a rotation around the Z axis
+    R, T = P[:3, :3].to(torch.double), P[:3, 3].to(torch.double)
+    R_rotation = rot_mat(angle_degrees / 180.0 * np.pi, dtype=torch.float64)
     R_composed = R_rotation @ R
     # # the following lines are equivalent
     # center = -R.inverse() @ T
@@ -711,9 +714,9 @@ def rotate_image_and_camera_z_axis(
         return img_rotated, P_rotated, K_rotated
 
     # from libutils.utils_3D import test_GT_matches_extraction_3D
-    # # ? test if the transformation we applied is correct
-    # xy0 = th.tensor([[500.0, 200.0],
+    # # test if the transformation we applied is correct
+    # xy0 = torch.tensor([[500.0, 200.0],
     #                  [300.0, 200.0]])
-    # xy1 = th.zeros((1, 2))
+    # xy1 = torch.zeros((1, 2))
     # test_GT_matches_extraction_3D(xy0[None], xy1[None], depth[None], depth_rotated[None], P[None], P_rotated[None],
     #                               K[None], K_rotated[None], img0=img[None], img1=img_rotated[None])

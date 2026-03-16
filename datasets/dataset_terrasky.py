@@ -5,7 +5,7 @@ import h5py
 import json
 import imageio.v3 as io
 import numpy as np
-import torch as th
+import torch
 import torch.nn.functional as F
 import pandas as pd
 from torch import Tensor
@@ -309,17 +309,17 @@ class TerraSkyDataset(Dataset):
             str(img_path).replace("frames", "depth/maps").replace(".jpg", ".h5")
         )
 
-        img_rgb = th.from_numpy(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
+        img_rgb = torch.from_numpy(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
         with h5py.File(depth_path, "r") as f:
-            depth = th.from_numpy(f["depth"][()])
+            depth = torch.from_numpy(f["depth"][()])
 
         img_entry = current_scene["images"][img]
-        P = th.tensor(img_entry["P"])
-        P = th.cat([P, th.tensor([[0.0, 0.0, 0.0, 1.0]])], dim=0)
+        P = torch.tensor(img_entry["P"])
+        P = torch.cat([P, torch.tensor([[0.0, 0.0, 0.0, 1.0]])], dim=0)
 
         # forcing the principal point to be in the center of the image, as we will apply random crops and rotations
         # which might not be the best choice but it works for now
-        K = th.tensor(current_scene["cameras"][str(img_entry["K_id"])]["K"])
+        K = torch.tensor(current_scene["cameras"][str(img_entry["K_id"])]["K"])
         K[0, 2] = img_rgb.shape[-1] // 2
         K[1, 2] = img_rgb.shape[-2] // 2
 

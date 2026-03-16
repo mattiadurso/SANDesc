@@ -3,7 +3,7 @@ from typing import Tuple, Callable
 import gc
 import numpy as np
 import pandas as pd
-import torch as th
+import torch
 from torch import nn, Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -32,21 +32,29 @@ def extract_keypoints(
     const = float("nan")
     # const = 1.0
 
-    kpts0 = const * th.zeros((B, max_n_keypoints, 2), device=device)  # B,n_kpts,2
-    kpts1 = const * th.zeros((B, max_n_keypoints, 2), device=device)  # B,n_kpts,2
-    kpts0_scores = const * th.zeros((B, max_n_keypoints), device=device)  # B,n_kpts,2
-    kpts1_scores = const * th.zeros((B, max_n_keypoints), device=device)  # B,n_kpts,2
-    kpts0_scales = const * th.zeros((B, max_n_keypoints), device=device)  # B,n_kpts,2
-    kpts1_scales = const * th.zeros((B, max_n_keypoints), device=device)  # B,n_kpts,2
+    kpts0 = const * torch.zeros((B, max_n_keypoints, 2), device=device)  # B,n_kpts,2
+    kpts1 = const * torch.zeros((B, max_n_keypoints, 2), device=device)  # B,n_kpts,2
+    kpts0_scores = const * torch.zeros(
+        (B, max_n_keypoints), device=device
+    )  # B,n_kpts,2
+    kpts1_scores = const * torch.zeros(
+        (B, max_n_keypoints), device=device
+    )  # B,n_kpts,2
+    kpts0_scales = const * torch.zeros(
+        (B, max_n_keypoints), device=device
+    )  # B,n_kpts,2
+    kpts1_scales = const * torch.zeros(
+        (B, max_n_keypoints), device=device
+    )  # B,n_kpts,2
 
     if compute_stats_orig:
-        des0_orig = const * th.zeros((B, max_n_keypoints, 128), device=device)
-        des1_orig = const * th.zeros((B, max_n_keypoints, 128), device=device)
+        des0_orig = const * torch.zeros((B, max_n_keypoints, 128), device=device)
+        des1_orig = const * torch.zeros((B, max_n_keypoints, 128), device=device)
     else:
         des0_orig, des1_orig = None, None
 
     for b in range(B):
-        with th.no_grad():
+        with torch.no_grad():
             output0_b = detector_wrapper.extract(img0[b], max_kpts=max_n_keypoints)
             output1_b = detector_wrapper.extract(img1[b], max_kpts=max_n_keypoints)
             kpts0_b = output0_b.kpts  # n_kpts0,2
@@ -82,7 +90,7 @@ def extract_keypoints(
     )
 
 
-@th.no_grad()
+@torch.no_grad()
 def evaluate(
     detector_wrapper,
     network: nn.Module,
@@ -110,7 +118,7 @@ def evaluate(
         network_temp.requires_grad_(False)
         detector_wrapper.add_custom_descriptor(
             network_temp
-        )  # ? set the detector descriptor
+        )  # set the detector descriptor
 
     stats_all = []
     pose_error = []
@@ -203,7 +211,7 @@ def evaluate(
             pose_error.append(err)
         # < ============================================================================================================
 
-        # ? compute GT the matches
+        # compute GT the matches
         matches_matrix_GT_with_bins = compute_GT_matching_matrix_fn(
             data
         )  # B,n_kpts0+1,n_kpts1+1
@@ -286,13 +294,13 @@ def evaluate(
             kpts1_matched,
         )
         gc.collect()
-        th.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     stats_df = pd.DataFrame(stats_all)
     stats_mean_df = stats_df.mean(axis=0)
     stats_mean_df = stats_mean_df.add_prefix(tag)
 
-    # ? convert pandas to dict
+    # convert pandas to dict
     stats_mean = stats_mean_df.to_dict()
 
     if compute_pose_stats:
@@ -352,7 +360,7 @@ def evaluate(
         detector_wrapper.custom_descriptor,
     )
     gc.collect()
-    th.cuda.empty_cache()
+    torch.cuda.empty_cache()
 
 
 def create_fake_score_matrix_from_matched_ktps(kps1, kps2, idxs, device="cuda"):
@@ -360,7 +368,7 @@ def create_fake_score_matrix_from_matched_ktps(kps1, kps2, idxs, device="cuda"):
     Given two sets of matched keypoints, create a score matrix.
     # not working for batch != 1
     """
-    m = th.zeros((1, kps1.shape[0], kps2.shape[0]), device=device)
+    m = torch.zeros((1, kps1.shape[0], kps2.shape[0]), device=device)
     m[0, idxs[:, 0], idxs[:, 1]] = 1.0
 
     return m

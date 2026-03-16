@@ -1,4 +1,4 @@
-import torch as th
+import torch
 from torch import nn
 from torch import Tensor
 
@@ -66,12 +66,12 @@ class TripletLoss(nn.Module):
             chosen_triplets_margin = scores_pos - self.margin < scores_neg
             # chosen_triplets_margin = scores_pos - scores_neg > self.margin
         else:
-            chosen_triplets_margin = th.ones_like(scores_pos, dtype=th.bool)
+            chosen_triplets_margin = torch.ones_like(scores_pos, dtype=torch.bool)
 
         if self.ratio < 1.0:
             chosen_triplets_ratio = scores_neg / scores_pos > self.ratio
         else:
-            chosen_triplets_ratio = th.ones_like(scores_pos, dtype=th.bool)
+            chosen_triplets_ratio = torch.ones_like(scores_pos, dtype=torch.bool)
 
         chosen_triplets = chosen_triplets_margin * chosen_triplets_ratio
 
@@ -107,9 +107,9 @@ class TripletLoss(nn.Module):
         B, n0, des_dim = des0.shape
         _, n1, _ = des1.shape
         device = des0.device
-        triplets = th.tensor([], device=device)  # n_triplets,3,des_dim
+        triplets = torch.tensor([], device=device)  # n_triplets,3,des_dim
         for b in range(B):
-            with th.no_grad():
+            with torch.no_grad():
                 matches_from_kpts = (
                     matches_matrix_GT_with_bins[b, :-1, :-1]
                 ).nonzero()  # n_matches_kpts,2
@@ -134,7 +134,7 @@ class TripletLoss(nn.Module):
                     # we have more than one match for keypoints (because we run the detector multiscale), we
                     # want to take the best possible match for each row and column (without actually requiring to
                     # be mutual best match)
-                    scores = th.zeros((n0, n1), device=device)
+                    scores = torch.zeros((n0, n1), device=device)
                     scores[idx_anchor0, idx_anchor1] = (
                         des0[b][idx_anchor0] * des1[b][idx_pos0]
                     ).sum(
@@ -162,7 +162,7 @@ class TripletLoss(nn.Module):
             pos0 = des1[b][idx_pos0]  # n_matches_kpts,des_dim
             pos1 = des0[b][idx_pos1]  # n_matches_kpts,des_dim
 
-            with th.no_grad():
+            with torch.no_grad():
                 # we put as negative all the descriptors from img1 which are not the positive
                 # we do this for the single batch
                 negatives_all0 = des1[b].detach()  # n_kpts,des_dim
@@ -194,11 +194,11 @@ class TripletLoss(nn.Module):
                 # negatives and pushes all the descriptors to the same point in the embedding space. Then,
                 # as the random_negative_ratio decays, the model starts to use the hardest negatives.
                 mask0 = (
-                    th.rand(n_matches_kpts, device=des0.device)
+                    torch.rand(n_matches_kpts, device=des0.device)
                     < self.random_negative_ratio
                 )  # n_matches
                 mask1 = (
-                    th.rand(n_matches_kpts, device=des1.device)
+                    torch.rand(n_matches_kpts, device=des1.device)
                     < self.random_negative_ratio
                 )  # n_matches
                 mask0 = mask0[:, None].repeat(
@@ -220,46 +220,46 @@ class TripletLoss(nn.Module):
                     print(idx_hardest1)
                 continue
 
-            des1_valid = des1[b][~th.isnan(des1[b]).any(dim=1)]  # n1,des_dim
-            des0_valid = des0[b][~th.isnan(des0[b]).any(dim=1)]  # n1,des_dim
+            des1_valid = des1[b][~torch.isnan(des1[b]).any(dim=1)]  # n1,des_dim
+            des0_valid = des0[b][~torch.isnan(des0[b]).any(dim=1)]  # n1,des_dim
             if des1_valid.shape[0] > 0:
-                random_idx = th.randint(
+                random_idx = torch.randint(
                     0, des1_valid.shape[0], (n_matches_kpts,), device=device
                 )
-                neg0 = th.where(
+                neg0 = torch.where(
                     mask0, des1_valid[random_idx], des1[b][idx_hardest0]
                 )  # n_matches_kpts,des_dim
             else:
                 print("WARNING, no valid descriptors in image 1")
-                neg0 = th.zeros(
+                neg0 = torch.zeros(
                     n_matches_kpts, des1.shape[-1], device=des1.device
                 ) * float(
                     "nan"
                 )  # n_matches_kpts,des_dim
             if des0_valid.shape[0] > 0:
-                random_idx = th.randint(
+                random_idx = torch.randint(
                     0, des0_valid.shape[0], (n_matches_kpts,), device=device
                 )
-                neg1 = th.where(
+                neg1 = torch.where(
                     mask1, des0_valid[random_idx], des0[b][idx_hardest1]
                 )  # n_matches_kpts,des_dim
             else:
                 print("WARNING, no valid descriptors in image 1")
-                neg1 = th.zeros(
+                neg1 = torch.zeros(
                     n_matches_kpts, des0.shape[-1], device=des0.device
                 ) * float(
                     "nan"
                 )  # n_matches_kpts,des_dim
 
             # stack and concatenate
-            triplets_b0 = th.stack(
+            triplets_b0 = torch.stack(
                 [anchor0, pos0, neg0], dim=1
             )  # n_matches_kpts,3,des_dim
-            triplets_b1 = th.stack(
+            triplets_b1 = torch.stack(
                 [anchor1, pos1, neg1], dim=1
             )  # n_matches_kpts,3,des_dim
 
-            triplets = th.cat(
+            triplets = torch.cat(
                 [triplets, triplets_b0, triplets_b1], dim=0
             )  # n_cumulative_matches,3,des_dim
 
@@ -269,7 +269,7 @@ class TripletLoss(nn.Module):
         )
         return triplets
 
-    @th.no_grad()
+    @torch.no_grad()
     def compute_triplets_stats(self, triplets: Tensor):
         """computes some useful statistics about the triplets
         Args:
