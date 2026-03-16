@@ -17,8 +17,8 @@
   <h2 align="center">
     <p>3DV 2026</p>
     <a href="https://arxiv.org/abs/2601.13126" align="center">Paper</a> | 
-    <a href="https://mattiadurso.github.io/sandesc_3dv26/static/pdfs/SANDesc___3DV_SM.pdf" align="center">Supplementary Material</a> | 
-    <a href="https://mattiadurso.github.io/sandesc_3dv26/" align="center"> Project Page</a>
+    <a href="https://mattiadurso.github.io/sandesc/static/pdfs/SANDesc___3DV_SM.pdf" align="center">Supplementary Material</a> | 
+    <a href="https://mattiadurso.github.io/sandesc/" align="center"> Project Page</a>
   </h2>
 </p>
 
