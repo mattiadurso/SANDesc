@@ -16,13 +16,12 @@ from datasets.dataset_loaders import (
 
 from utils.descriptor_stats import compute_stats
 from utils.descriptors_utils import extract_keypoints, evaluate
-from utils.norm import compute_grad_norm
 from utils.utils_logging import log_match_plot
-from utils.seed_control import seed_management
-from utils.utils_network import save_checkpoint
+from utils.utils_saving import save_checkpoint
 from utils.helpers import (
     sanitize_config_for_omegaconf,
     load_checkpoint_if_needed,
+    compute_grad_norm,
     setup_dataloaders,
     setup_model_and_optimizer,
     setup_loss_and_scaler,
@@ -30,6 +29,7 @@ from utils.helpers import (
     setup_logging,
     set_deterministic_behavior,
     setup_paths,
+    seed_management,
 )
 
 setup_paths()
