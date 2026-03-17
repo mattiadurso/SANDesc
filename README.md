@@ -36,11 +36,6 @@ conda env create -f environment.yml
 conda activate sandesc
 ```
 
-3. Setup paths:
-```bash
-python setup_paths.py
-```
-
 ## Training
 
 ### Quick Start
@@ -59,8 +54,6 @@ python train_sandesc.py resume_from=path/to/checkpoint.pth
 
 Training parameters are configured using Hydra configs in the `configs/` directory. Key settings include:
 
-If you just want the fixed descriptions for your existing list without the extra fluff, here is the corrected Markdown:
-
 - **Model**: Architecture settings:
   * `"ch_in"`: Input channel size.
   * `"kernel_size"`: Size of the convolutional kernel used.
@@ -74,16 +67,12 @@ If you just want the fixed descriptions for your existing list without the extra
 * **Training**: Batch size, learning rate, iterations, and dataset selection.
 * **Loss**: Triplet loss margin, ratio, and negative mining parameters.
 
-Would you like me to rewrite this into a **Markdown table** instead to save vertical space?
-        
-- **Training**: Batch size, learning rate, iterations, dataset selection
-- **Loss**: Triplet loss margin, ratio, negative mining parameters
 
 ### Features
 
 - **Hard Negative Mining**: Dynamic triplet selection for effective learning
 - **Mixed Precision**: AMP support for faster training
-- **Multiple Datasets**: Support for MegaDepth, IMB, synthetic data
+- **Multiple Datasets**: Support for MegaDepth, IMB and TerraSky3D
 - **Comprehensive Logging**: WandB integration
 - **Reproducible**: Deterministic algorithms and seed management
 
@@ -104,10 +93,10 @@ sandesc/
 
 ```bibtex
 @inproceedings{durso2026sandesc,
-        title={A Streamlined Attention-based Network for Descriptor Extraction},
-        author={D'Urso, Mattia and Santellani, Emanuele and Sormann, Christian and Rossi, Mattia and Kuhn, Andreas and Fraundorfer, Friedrich},
-        booktitle={2026 International Conference on 3D Vision (3DV)},
-        year={2026},
-        organization={IEEE Computer Society}
-      }
+  title={A Streamlined Attention-based Network for Descriptor Extraction},
+  author={Mattia D'Urso and Emanuele Santellani and Christian Sormann and Mattia Rossi and Andreas Kuhn and Friedrich Fraundorfer},
+  booktitle={Thirteenth International Conference on 3D Vision},
+  year={2026},
+  url={https://openreview.net/forum?id=IM8t4BhDdG}
+  }
 ```
