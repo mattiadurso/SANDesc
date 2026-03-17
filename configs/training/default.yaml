@@ -15,10 +15,11 @@ decay_steps: 100_000
 warmup_steps: 2048
 
 # Training
-dataset: "disk" # "terrasky"
+dataset: "disk" # or "terrasky"
 max_n_keypoints: 2048
 max_iterations: 100000
-batch_size: 12
+batch_size: 14
+image_size: 448
 photo_aug_in_training: False
 random_training_rotation: 30
 

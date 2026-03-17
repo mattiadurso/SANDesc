@@ -125,6 +125,7 @@ def setup_dataloaders(cfg: DictConfig):
         cfg.model.unet_ch_in,
         config_override=config_override,
         num_workers=0,
+        img_size=cfg.training.image_size,
     )
 
     # Validation dataloader (hard)
@@ -149,6 +150,7 @@ def setup_dataloaders(cfg: DictConfig):
         cfg.model.unet_ch_in,
         config_override=config_override_hard,
         num_workers=0,
+        img_size=cfg.training.image_size,
     )
 
     # Training dataloader
@@ -164,6 +166,7 @@ def setup_dataloaders(cfg: DictConfig):
             num_workers=8,
             config_override={"random_rotation_degrees_fn": random_rotation_degrees_fn},
             augment=cfg.training.photo_aug_in_training,
+            img_size=cfg.training.image_size,
         )
     )
 
