@@ -1,17 +1,20 @@
 <p align="center">
   <h1 align="center">SANDesc: A Streamlined Attention-based Network for Descriptor Extraction</h1>
   <p align="center">
-    <a href="https://scholar.google.com/citations?user=9FjTo3YAAAAJ&hl=en">Mattia D'Urso</a>
+    <a href="https://scholar.google.com/citations?user=9FjTo3YAAAAJ&hl=en">Mattia D'Urso</a><sup>1</sup>
     ·
-    <a href="https://scholar.google.com/citations?user=1JwKYK8AAAAJ&hl=en&oi=ao">Emanuele Santellani</a>
+    <a href="https://scholar.google.com/citations?user=1JwKYK8AAAAJ&hl=en&oi=ao">Emanuele Santellani</a><sup>1</sup>
     ·
-    <a href="https://scholar.google.com/citations?user=6uZVF04AAAAJ&hl=en">Christian Sormann</a>
+    <a href="https://scholar.google.com/citations?user=6uZVF04AAAAJ&hl=en">Christian Sormann</a><sup>2</sup>
     <br>
-    <a href="https://scholar.google.com/citations?user=DA3nSvgAAAAJ&hl=en">Mattia Rossi</a>
+    <a href="https://scholar.google.com/citations?user=DA3nSvgAAAAJ&hl=en">Mattia Rossi</a><sup>2</sup>
     ·
-    <a href="https://scholar.google.com/citations?user=-uuEU_wAAAAJ&hl=en">Andreas Kuhn</a>
+    <a href="https://scholar.google.com/citations?user=-uuEU_wAAAAJ&hl=en">Andreas Kuhn</a><sup>2</sup>
     ·
-    <a href="https://scholar.google.com/citations?user=M0boL5kAAAAJ&hl=en">Friedrich Fraundorfer</a>
+    <a href="https://scholar.google.com/citations?user=M0boL5kAAAAJ&hl=en">Friedrich Fraundorfer</a><sup>1</sup>
+  </p>
+  <p align="center">
+    <sup>1</sup>Graz University of Technology · <sup>2</sup> Sony Europe
   </p>
   <h2 align="center">
     <p>3DV 2026</p>
@@ -70,17 +73,9 @@ Training parameters are configured using Hydra configs in the `configs/` directo
   * `"third_block"`: Whether to use the third block.
 
 
-* **Training**: Batch size, learning rate, iterations, and dataset selection.
+* **Training**: Traning keypoint detector, batch size, learning rate, iterations, and dataset selection.
 * **Loss**: Triplet loss margin, ratio, and negative mining parameters.
 
-
-### Features
-
-- **Hard Negative Mining**: Dynamic triplet selection for effective learning
-- **Mixed Precision**: AMP support for faster training
-- **Multiple Datasets**: Support for MegaDepth, IMB and TerraSky3D
-- **Comprehensive Logging**: WandB integration
-- **Reproducible**: Deterministic algorithms and seed management
 
 ## Project Structure
 
@@ -88,8 +83,9 @@ Training parameters are configured using Hydra configs in the `configs/` directo
 sandesc/
 ├── configs/               # Hydra configuration files
 ├── datasets/              # Dataset loaders (MegaDepth, IMB, TerraSky3D etc.)
-├── model/                 # SANDesc network architecture
 ├── losses/                # Triplet loss implementation
+├── matcher/               # The matcher use for training
+├── model/                 # SANDesc network architecture
 ├── utils/                 # Training utilities and evaluation
 ├── train_sandesc.py       # Main training script
 └── README.md
