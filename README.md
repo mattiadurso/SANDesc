@@ -25,8 +25,8 @@
 </p>
 
 <p align="center">
-  <img src="readme_imgs/clock_sandesc.jpg" alt="ALIKED+SANDesc" width="400px">
-  <img src="readme_imgs/clock_aliked.jpg" alt="ALIKED" width="400px">
+  <img src="assets/graz_clocktower/clock_sandesc.png" alt="ALIKED+SANDesc" width="400px">
+  <img src="assets/graz_clocktower/clock_aliked.png" alt="ALIKED" width="400px">
   <br>
   <em>ALIKED+SANDesc (right) and ALIKED (left) on images from Clock Tower from the Graz 4K benchmark.</em>
 </p>
@@ -44,6 +44,11 @@ cd sandesc
 conda env create -f environment.yml
 conda activate sandesc
 ```
+
+## Demo
+To make the demo easier to run, we run ALIKED on the demo images and saved its keypoints and descriptors. Since SANDesc is a descriptor module, it shares the same keypoints extracted by ALIKED. Then, only the descriptors are replaced and pose recomputed. Use `demo.ipynb` to visualize the demo.
+
+
 
 ## Training
 
