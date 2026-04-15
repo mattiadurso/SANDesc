@@ -21,6 +21,7 @@
     <a href="https://arxiv.org/abs/2601.13126" align="center">Paper</a> | 
     <a href="https://mattiadurso.github.io/sandesc/static/pdfs/SANDesc___3DV_SM.pdf" align="center">Supplementary Material</a> | 
     <a href="https://mattiadurso.github.io/sandesc/" align="center"> Project Page</a>
+    <a href="https://cloud.tugraz.at/index.php/s/4CtSeN4jgXRnLjB/download" align="center"> Graz4K</a>
   </h2>
 </p>
 
@@ -97,7 +98,7 @@ sandesc/
 ```
 ## Testing
 
-Please refer to [PoseBench](https://github.com/mattiadurso/PoseBench) for testing. PoseBench currently supports 7 different sparse feature extractors or matchers on 8 different benchmarks, including Graz4K.
+Please refer to [PoseBench](https://github.com/mattiadurso/PoseBench) for testing. PoseBench currently supports 7 different sparse feature extractors or matchers on 8 different benchmarks, including <a href="https://cloud.tugraz.at/index.php/s/4CtSeN4jgXRnLjB/download" align="center"> Graz4K</a>.
 
 ## Citation
 
