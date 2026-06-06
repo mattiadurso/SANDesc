@@ -8,19 +8,14 @@ import numpy as np
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import P_from_R_t_np, scale_and_crop
 
-# Define primary and fallback dataset paths
-primary_path = Path("/home/mattia/HDD_Fast/Datasets/IMB/validation")  # local
-fallback_path = Path("/gpfs/data/fs72667/icgma_durso/IMB/validation")  # server
-
-# Select the first available dataset path
-if primary_path.exists():
-    DATASET_PATH = primary_path
-elif fallback_path.exists():
-    DATASET_PATH = fallback_path
-else:
-    exit("Dataset IMB not found")
+# Candidate dataset paths; override with the SANDESC_IMB_PATH env var.
+DATASET_CANDIDATES = [
+    Path("/home/mattia/HDD_Fast/Datasets/IMB/validation"),  # local
+    Path("/gpfs/data/fs72667/icgma_durso/IMB/validation"),  # server
+]
 
 COVISIBILITY_THRS = [
     "0.0",
@@ -57,6 +52,9 @@ class ImageMatchingBenchmark(Dataset):
         """
         if transform is None:
             transform = transforms.Compose([])
+        self.dataset_path = resolve_dataset_path(
+            "IMB", "SANDESC_IMB_PATH", DATASET_CANDIDATES
+        )
         assert sorted(covisibility_weights.keys()) == COVISIBILITY_THRS
         self.covisibility_probs = np.array(list(covisibility_weights.values()))
         self.covisibility_probs /= self.covisibility_probs.sum()
@@ -68,7 +66,7 @@ class ImageMatchingBenchmark(Dataset):
         #  load the covisibility values
         for scene in self.scenes:
             self.covisibilities[scene] = {}
-            base_path = DATASET_PATH / scene / "set_100" / "new-vis-pairs"
+            base_path = self.dataset_path / scene / "set_100" / "new-vis-pairs"
             for i in range(9, -1, -1):
                 keys_file_name = f"keys-th-{i / 10:.1f}.npy"
                 self.covisibilities[scene][f"{i / 10:.1f}"] = list(
@@ -117,7 +115,7 @@ class ImageMatchingBenchmark(Dataset):
                 pair = np.random.choice(possible_pairs)
                 img0_name, img1_name = pair.split("-")
 
-                base_path = DATASET_PATH / current_scene / "set_100"
+                base_path = self.dataset_path / current_scene / "set_100"
 
                 img0_path = (base_path / "images" / img0_name).with_suffix(".jpg")
                 img1_path = (base_path / "images" / img1_name).with_suffix(".jpg")
@@ -174,7 +172,7 @@ class ImageMatchingBenchmark(Dataset):
                     #  find a random point such that the img_shape is fully
                     #  contained in the image
                     center0 = np.array([img0.shape[1], img0.shape[0]]) // 2  # x,y
-                    center1 = np.array([img1.shape[1], img0.shape[0]]) // 2  # x,y
+                    center1 = np.array([img1.shape[1], img1.shape[0]]) // 2  # x,y
                     img0, K0, _, bbox0, depth0 = scale_and_crop(
                         img0,
                         K0,

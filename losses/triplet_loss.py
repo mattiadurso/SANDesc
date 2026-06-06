@@ -1,7 +1,11 @@
 """Triplet loss with hardest-negative mining for descriptor training."""
 
+import logging
+
 import torch
 from torch import Tensor, nn
+
+log = logging.getLogger(__name__)
 
 
 class TripletLoss(nn.Module):
@@ -46,7 +50,7 @@ class TripletLoss(nn.Module):
         des_anchor: Tensor,
         des_pos: Tensor,
         des_neg: Tensor,
-        _kpts_scores: Tensor = None,
+        _kpts_scores: Tensor | None = None,
     ) -> Tensor:
         """Compute the triplet loss.
 
@@ -89,6 +93,79 @@ class TripletLoss(nn.Module):
         """Return a short representation with the loss name and margin."""
         return f"{self.name}\n   margin: {self.margin}"
 
+    @staticmethod
+    def _resolve_multiscale_anchors(
+        des0: Tensor,
+        des1: Tensor,
+        gt_mask: Tensor,
+        idx_anchor0: Tensor,
+        idx_anchor1: Tensor,
+    ) -> tuple[Tensor, Tensor]:
+        """Pick the best single match per row/column for multiscale GT.
+
+        When the detector runs multiscale there can be several GT matches per
+        keypoint; keep, for each row and column, the highest-scoring pair
+        (without requiring it to be a mutual best match). Returns the new
+        ``(idx_anchor0, idx_anchor1)``.
+        """
+        n0, n1 = gt_mask.shape
+        device = des0.device
+        scores = torch.zeros((n0, n1), device=device)
+        scores[idx_anchor0, idx_anchor1] = (des0[idx_anchor0] * des1[idx_anchor1]).sum(
+            -1
+        )
+        # keep only the scores that are max by row or by column
+        mask_rows = scores == scores.max(-1, keepdim=True)[0]
+        mask_columns = scores == scores.max(-2, keepdim=True)[0]
+        scores_best = scores * (mask_rows * mask_columns)
+        best_matches_from_kpts = scores_best.nonzero()  # n_matches_kpts,2
+        return best_matches_from_kpts[:, 0], best_matches_from_kpts[:, 1]
+
+    @staticmethod
+    def _hardest_negative_indices(
+        anchor: Tensor,
+        negatives_all: Tensor,
+        positives_mask: Tensor,
+    ) -> tuple[Tensor, Tensor]:
+        """Find the hardest (highest-scoring) non-positive negative per anchor.
+
+        Returns ``(score_hardest, idx_hardest)``; positives and invalid (nan)
+        scores are masked out before taking the max.
+        """
+        scores_neg = anchor @ negatives_all.T  # n_matches_kpts,n_kpts
+        # remove the actual positives (works also with multiple positives)
+        scores_neg[positives_mask] = float("-inf")
+        # remove the invalid descriptors
+        scores_neg[scores_neg.isnan()] = float("-inf")
+        return scores_neg.max(-1)  # (score, idx)
+
+    @staticmethod
+    def _sample_negative(
+        des_negatives: Tensor,
+        idx_hardest: Tensor,
+        random_mask: Tensor,
+        n_matches_kpts: int,
+        device: torch.device,
+    ) -> Tensor:
+        """Pick the negative descriptor: random valid one where mask is True.
+
+        Falls back to all-NaN when no valid negative descriptor exists.
+        """
+        des_valid = des_negatives[~torch.isnan(des_negatives).any(dim=1)]
+        if des_valid.shape[0] > 0:
+            random_idx = torch.randint(
+                0, des_valid.shape[0], (n_matches_kpts,), device=device
+            )
+            return torch.where(
+                random_mask, des_valid[random_idx], des_negatives[idx_hardest]
+            )
+        log.warning("no valid descriptors in image 1")
+        return torch.full(
+            (n_matches_kpts, des_negatives.shape[-1]),
+            float("nan"),
+            device=des_negatives.device,
+        )
+
     def get_hardest_triplets(
         self, des0: Tensor, des1: Tensor, matches_matrix_GT_with_bins: Tensor
     ) -> Tensor:
@@ -112,52 +189,31 @@ class TripletLoss(nn.Module):
         device = des0.device
         triplets = torch.tensor([], device=device)  # n_triplets,3,des_dim
         for b in range(B):
+            gt_mask = matches_matrix_GT_with_bins[b, :-1, :-1]  # n0,n1 bool
             with torch.no_grad():
-                matches_from_kpts = (
-                    matches_matrix_GT_with_bins[b, :-1, :-1]
-                ).nonzero()  # n_matches_kpts,2
+                matches_from_kpts = gt_mask.nonzero()  # n_matches_kpts,2
                 n_matches_kpts = matches_from_kpts.shape[0]
                 if n_matches_kpts == 0:
                     if self.verbose:
-                        print("no matches GT for this batch index")
+                        log.debug("no matches GT for this batch index")
                     continue
 
-                # Get anchors
+                # anchors and positives (positive of img0 anchor is its img1 match)
                 idx_anchor0 = matches_from_kpts[:, 0]  # n_matches_kpts
                 idx_anchor1 = matches_from_kpts[:, 1]  # n_matches_kpts
 
-                # Get positives
+                if gt_mask.sum(-1).max() > 1 or gt_mask.sum(-2).max() > 1:
+                    # multiscale: more than one match per keypoint
+                    idx_anchor0, idx_anchor1 = self._resolve_multiscale_anchors(
+                        des0[b], des1[b], gt_mask, idx_anchor0, idx_anchor1
+                    )
+                    delta_n = n_matches_kpts - idx_anchor0.shape[0]
+                    n_matches_kpts = idx_anchor0.shape[0]
+                    if self.verbose:
+                        log.debug("delta n matches: %d", delta_n)
+
                 idx_pos0 = idx_anchor1.clone()  # n_matches_kpts
                 idx_pos1 = idx_anchor0.clone()  # n_matches_kpts
-
-                if (
-                    matches_matrix_GT_with_bins[b, :-1, :-1].sum(-1).max() > 1
-                    or matches_matrix_GT_with_bins[b, :-1, :-1].sum(-2).max() > 1
-                ):
-                    # we have more than one match for keypoints (because we run
-                    # the detector multiscale), so we want to take the best
-                    # possible match for each row and column (without actually
-                    # requiring it to be a mutual best match)
-                    scores = torch.zeros((n0, n1), device=device)
-                    scores[idx_anchor0, idx_anchor1] = (
-                        des0[b][idx_anchor0] * des1[b][idx_pos0]
-                    ).sum(-1)  # n_matches_kpts,n_matches_kpts
-                    # keep only the scores that are max by row or by column
-                    mask_rows = scores == scores.max(-1, keepdim=True)[0]
-                    mask_columns = scores == scores.max(-2, keepdim=True)[0]
-                    scores_best = scores * (mask_rows * mask_columns)
-
-                    # re-find the GT matches from this new score matrix
-                    best_matches_from_kpts = scores_best.nonzero()  # n_matches_kpts,2
-                    idx_anchor0 = best_matches_from_kpts[:, 0]  # n_matches_kpts
-                    idx_anchor1 = best_matches_from_kpts[:, 1]  # n_matches_kpts
-                    idx_pos0 = idx_anchor1.clone()  # n_matches_kpts
-                    idx_pos1 = idx_anchor0.clone()  # n_matches_kpts
-                    n_matches_kpts = best_matches_from_kpts.shape[0]
-                    delta_n = (
-                        matches_from_kpts.shape[0] - best_matches_from_kpts.shape[0]
-                    )
-                    print(f"delta n matches: {delta_n}")
 
             anchor0 = des0[b][idx_anchor0]  # n_matches_kpts,des_dim
             anchor1 = des1[b][idx_anchor1]  # n_matches_kpts,des_dim
@@ -165,32 +221,18 @@ class TripletLoss(nn.Module):
             pos1 = des0[b][idx_pos1]  # n_matches_kpts,des_dim
 
             with torch.no_grad():
-                # we put as negative all the descriptors from img1 which are
-                # not the positive; we do this for the single batch
-                negatives_all0 = des1[b].detach()  # n_kpts,des_dim
-                negatives_all1 = des0[b].detach()  # n_kpts,des_dim
-                # compute the anchor-negative scores
-                scores_neg0 = anchor0 @ negatives_all0.T  # n_matches_kpts,n_kpts
-                scores_neg1 = anchor1 @ negatives_all1.T  # n_matches_kpts,n_kpts
-                # remove the actual positives from the scores (this works also
-                # with multiple positives)
-                scores_neg0[matches_matrix_GT_with_bins[b, :-1, :-1][idx_anchor0]] = (
-                    float("-inf")
+                # all descriptors from the other image (except the positive) are
+                # candidate negatives; find the hardest for each anchor
+                score0_hardest, idx_hardest0 = self._hardest_negative_indices(
+                    anchor0, des1[b].detach(), gt_mask[idx_anchor0]
                 )
-                scores_neg1[matches_matrix_GT_with_bins[b, :-1, :-1].T[idx_anchor1]] = (
-                    float("-inf")
+                score1_hardest, idx_hardest1 = self._hardest_negative_indices(
+                    anchor1, des0[b].detach(), gt_mask.T[idx_anchor1]
                 )
-                # remove the invalid descriptors
-                scores_neg0[scores_neg0.isnan()] = float("-inf")
-                scores_neg1[scores_neg1.isnan()] = float("-inf")
-                # find the (since removed the positives, second) hardest
-                score0_hardest, idx_hardest0 = scores_neg0.max(-1)  # n_matches_kpts
-                score1_hardest, idx_hardest1 = scores_neg1.max(-1)  # n_matches_kpts
 
                 if score0_hardest.isnan().any() or score1_hardest.isnan().any():
-                    print(
-                        "WARNING, one of the score_hardest is nan, this "
-                        "should never happen"
+                    log.warning(
+                        "one of the score_hardest is nan, this should never happen"
                     )
                     continue
 
@@ -215,44 +257,22 @@ class TripletLoss(nn.Module):
                 )  # n_matches_kpts,des_dim
 
             if (idx_pos0 == idx_hardest0).any() or (idx_pos1 == idx_hardest1).any():
-                print(
-                    "WARNING, one of the idx_pos is equal to idx_hardest, "
-                    "this should never happen"
+                log.warning(
+                    "one of the idx_pos is equal to idx_hardest, this should "
+                    "never happen"
                 )
-                if (idx_pos0 == idx_hardest0).all():
-                    print(idx_pos0)
-                    print(idx_hardest0)
-                if (idx_pos1 == idx_hardest1).all():
-                    print(idx_pos1)
-                    print(idx_hardest1)
+                if self.verbose and (idx_pos0 == idx_hardest0).all():
+                    log.debug("idx_pos0=%s idx_hardest0=%s", idx_pos0, idx_hardest0)
+                if self.verbose and (idx_pos1 == idx_hardest1).all():
+                    log.debug("idx_pos1=%s idx_hardest1=%s", idx_pos1, idx_hardest1)
                 continue
 
-            des1_valid = des1[b][~torch.isnan(des1[b]).any(dim=1)]  # n1,des_dim
-            des0_valid = des0[b][~torch.isnan(des0[b]).any(dim=1)]  # n1,des_dim
-            if des1_valid.shape[0] > 0:
-                random_idx = torch.randint(
-                    0, des1_valid.shape[0], (n_matches_kpts,), device=device
-                )
-                neg0 = torch.where(
-                    mask0, des1_valid[random_idx], des1[b][idx_hardest0]
-                )  # n_matches_kpts,des_dim
-            else:
-                print("WARNING, no valid descriptors in image 1")
-                neg0 = torch.zeros(
-                    n_matches_kpts, des1.shape[-1], device=des1.device
-                ) * float("nan")  # n_matches_kpts,des_dim
-            if des0_valid.shape[0] > 0:
-                random_idx = torch.randint(
-                    0, des0_valid.shape[0], (n_matches_kpts,), device=device
-                )
-                neg1 = torch.where(
-                    mask1, des0_valid[random_idx], des0[b][idx_hardest1]
-                )  # n_matches_kpts,des_dim
-            else:
-                print("WARNING, no valid descriptors in image 1")
-                neg1 = torch.zeros(
-                    n_matches_kpts, des0.shape[-1], device=des0.device
-                ) * float("nan")  # n_matches_kpts,des_dim
+            neg0 = self._sample_negative(
+                des1[b], idx_hardest0, mask0, n_matches_kpts, device
+            )  # n_matches_kpts,des_dim
+            neg1 = self._sample_negative(
+                des0[b], idx_hardest1, mask1, n_matches_kpts, device
+            )  # n_matches_kpts,des_dim
 
             # stack and concatenate
             triplets_b0 = torch.stack(

@@ -606,7 +606,7 @@ class Matches:
 class Matcher(ABC):
     """Abstract base class for descriptor matchers."""
 
-    def __int__(self) -> None:
+    def __init__(self) -> None:
         """Initialize the matcher name."""
         super().__init__()
         self.name = "Matcher"

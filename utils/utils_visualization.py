@@ -171,12 +171,12 @@ def imshow(
                         imgs[i * n_x + j],
                         (H_max_per_row[i] + pad, W_max_per_column[j] + pad),
                     )
-                    img_row = cat_images([img_row, img_pad], mode="horizontal")
+                    img_row = cat_images(img_row, img_pad, mode="horizontal")
             imgs_row.append(img_row)
 
         img_out = imgs_row[0]
         for i in range(1, len(imgs_row)):
-            img_out = cat_images([img_out, imgs_row[i]], mode="vertical")
+            img_out = cat_images(img_out, imgs_row[i], mode="vertical")
     else:
         img_out = image_to_tensor(img)
 

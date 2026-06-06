@@ -13,19 +13,14 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import P_from_R_t, rotate_image_and_camera_z_axis
 
-# Define primary and fallback dataset paths
-primary_path = Path("/home/mattia/HDD_Fast/Megadepth/data")  # local
-fallback_path = Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data")  # server
-
-# Select the first available dataset path
-if primary_path.exists():
-    DATASET_PATH = primary_path
-elif fallback_path.exists():
-    DATASET_PATH = fallback_path
-else:
-    exit("Dataset megadepth-disk not found")
+# Candidate dataset paths; override with the SANDESC_MEGADEPTH_PATH env var.
+DATASET_CANDIDATES = [
+    Path("/home/mattia/HDD_Fast/Megadepth/data"),  # local
+    Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data"),  # server
+]
 
 
 def rescale_and_pad(
@@ -152,7 +147,10 @@ class MegadepthDiskDataset(Dataset):
         self.transform = transforms.Compose(
             [t for t in transform.transforms if not isinstance(t, transforms.ToTensor)]
         )
-        with (DATASET_PATH / "dataset.json").open() as f:
+        self.dataset_path = resolve_dataset_path(
+            "megadepth-disk", "SANDESC_MEGADEPTH_PATH", DATASET_CANDIDATES
+        )
+        with (self.dataset_path / "dataset.json").open() as f:
             scenes = json.load(f)
         self.scenes = {k: scenes[k] for k in sorted(scenes.keys())}
 
@@ -184,7 +182,10 @@ class MegadepthDiskDataset(Dataset):
         while True:
             current_scene_name = list(self.scenes.keys())[idx % len(self.scenes)]
             current_scene = self.scenes[current_scene_name]
-            base_path = DATASET_PATH / "scenes" / current_scene_name
+            base_path = self.dataset_path / "scenes" / current_scene_name
+            # Sample a triplet without replacement: pop() drains this worker's
+            # in-memory copy of the scene's tuples over the epoch. reset()
+            # reloads the full set from disk.
             triplets = current_scene["tuples"]
             triplet_idx = np.random.randint(len(triplets))
 
@@ -247,20 +248,27 @@ class MegadepthDiskDataset(Dataset):
         depth_path = base_path / "depth_maps" / f"{img_path.stem}.h5"
         calib_path = base_path / "calibration" / f"calibration_{img_path.name}.h5"
 
-        img0 = torch.tensor(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
-        depth0 = torch.tensor(h5py.File(depth_path, "r")["depth"][()])
-        calib_h5 = h5py.File(calib_path, "r")
-        K, R, t = (
-            torch.tensor(calib_h5["K"][()]),
-            torch.tensor(calib_h5["R"][()]),
-            torch.tensor(calib_h5["T"][()]),
-        )
+        try:
+            img0 = torch.tensor(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
+            depth0 = torch.tensor(h5py.File(depth_path, "r")["depth"][()])
+            calib_h5 = h5py.File(calib_path, "r")
+            K, R, t = (
+                torch.tensor(calib_h5["K"][()]),
+                torch.tensor(calib_h5["R"][()]),
+                torch.tensor(calib_h5["T"][()]),
+            )
+        except (OSError, KeyError, ValueError) as e:
+            if self.verbose:
+                print(f"Skipping {img_path.name}: {e}")
+            return None, None, None, None
+
         P = P_from_R_t(R[None], t[None])[0]
 
         if (2 * K[0, 2]).round().int() != img0.shape[-1] or (
             2 * K[1, 2]
         ).round().int() != img0.shape[-2]:
-            print("img0 center is not centered with the intrinsics, skipping this pair")
+            if self.verbose:
+                print(f"{img_path.name} center is not centered with K, skipping")
             return None, None, None, None
 
         return img0, depth0, K, P

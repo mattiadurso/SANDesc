@@ -6,6 +6,7 @@ target-version = "py312"
 # Generated artifacts, notebooks and checkpoints are not linted.
 extend-exclude = [
     "*.ipynb",
+    "_bin",
     "final_models",
     "pretrained",
     "trainings_descriptor",
@@ -36,6 +37,11 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.isort]
+# The local ``wandb/`` run-log directory makes isort guess wandb is
+# first-party; pin it as third-party so import order is deterministic.
+known-third-party = ["wandb"]
 
 [tool.ruff.format]
 # Black-compatible defaults.

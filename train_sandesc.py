@@ -133,9 +133,10 @@ def main(cfg: DictConfig) -> None:
     start_time = time.time()
     total_images = checkpoint.get("total_images", 0) if checkpoint else 0
 
-    # Training loop
+    # Training loop. Iteration-driven: the loop exits via the max_iterations
+    # check below; we re-iterate the dataloader until that target is reached.
     try:
-        for _ in range(10):
+        while True:
             log.info(">>> Training...")
 
             for data in train_dataloader:
@@ -205,8 +206,7 @@ def main(cfg: DictConfig) -> None:
 
                 # Move data to device
                 for key in data:
-                    if key in data:
-                        data[key] = data[key][mask].to(cfg.device)
+                    data[key] = data[key][mask].to(cfg.device)
 
                 img0, img1 = data["img0"], data["img1"]
 
@@ -258,6 +258,9 @@ def main(cfg: DictConfig) -> None:
 
                 # Backward pass
                 scaler.scale(loss).backward()
+                # Unscale before reading grads so the logged norm is the true
+                # (unscaled) gradient norm, not inflated by the GradScaler factor.
+                scaler.unscale_(optimizer)
                 grad_norm = compute_grad_norm(network)
                 scaler.step(optimizer)
                 scaler.update()

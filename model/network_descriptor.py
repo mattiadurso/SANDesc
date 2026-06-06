@@ -1,17 +1,15 @@
-"""SANDesc UNet-style descriptor network."""
+"""SANDesc UNet-style descriptor network.
 
-import sys
-from pathlib import Path
+Run the standalone smoke test below as a module: ``python -m
+model.network_descriptor`` (so the package root is importable).
+"""
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-# Add project root and external repos to path
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
-from model.modules import UNetDownBlock, UNetUpBlock  # noqa: E402
+from model.modules import UNetDownBlock, UNetUpBlock
 
 
 class SANDesc(nn.Module):
