@@ -1,6 +1,7 @@
 """TerraSky3D dataset loader."""
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from tqdm.auto import tqdm
 
 from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import rotate_image_and_camera_z_axis
+
+log = logging.getLogger(__name__)
 
 # Candidate dataset paths; override with the SANDESC_TERRASKY_PATH env var.
 DATASET_CANDIDATES = [
@@ -189,9 +192,9 @@ class TerraSkyDataset(Dataset):
                 # this should not happen, but just in case we skip the scene if
                 # the consistency check results are not found
                 if self.verbose:
-                    print(
-                        f"Consistency check results not found for scene "
-                        f"{scene}, skipping..."
+                    log.debug(
+                        "Consistency check results not found for scene %s, skipping...",
+                        scene,
                     )
                 continue
             # ... here there might be some filtering of the pairs based on the
@@ -235,16 +238,19 @@ class TerraSkyDataset(Dataset):
                 if "aerial" not in img0 and "aerial" not in img1
             )
             total_pairs = len(self.flattened_pairs)
-            print(
-                f"Mixed images:  {mixed_count:>10,} "
-                f"({mixed_count / total_pairs:>7.2%})",
-                f"Aerial images: {aerial_count:>10,} "
-                f"({aerial_count / total_pairs:>7.2%})",
-                f"Ground images: {ground_count:>10,} "
-                f"({ground_count / total_pairs:>7.2%})",
-                "-" * 40,
-                f"Total pairs:   {total_pairs:>10,}",
-                sep="\n",
+            log.info(
+                "\n".join(
+                    [
+                        f"Mixed images:  {mixed_count:>10,} "
+                        f"({mixed_count / total_pairs:>7.2%})",
+                        f"Aerial images: {aerial_count:>10,} "
+                        f"({aerial_count / total_pairs:>7.2%})",
+                        f"Ground images: {ground_count:>10,} "
+                        f"({ground_count / total_pairs:>7.2%})",
+                        "-" * 40,
+                        f"Total pairs:   {total_pairs:>10,}",
+                    ]
+                )
             )
 
     def __len__(self) -> int:
@@ -271,7 +277,10 @@ class TerraSkyDataset(Dataset):
             pairs = current_scene["pairs"]
             if pairs is None or len(pairs) == 0:
                 if self.verbose:
-                    print(f"No valid pairs in scene {current_scene_name}, skipping...")
+                    log.debug(
+                        "No valid pairs in scene %s, skipping...",
+                        current_scene_name,
+                    )
                 continue
             pair_idx = np.random.randint(len(pairs))
             img0_name, img1_name = pairs[pair_idx]
@@ -281,9 +290,11 @@ class TerraSkyDataset(Dataset):
 
             if img0 is None or img1 is None:
                 if self.verbose:
-                    print(
-                        f"Skipping invalid pair {img0_name}, {img1_name} in "
-                        f"scene {current_scene_name}"
+                    log.debug(
+                        "Skipping invalid pair %s, %s in scene %s",
+                        img0_name,
+                        img1_name,
+                        current_scene_name,
                     )
                 continue
 

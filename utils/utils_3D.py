@@ -1,5 +1,6 @@
 """Functions that works with cameras, depthmaps and 3D points."""
 
+import logging
 from typing import Any
 
 import cv2
@@ -12,6 +13,8 @@ from utils.utils_homography import (
     rot_mat,
     rotate_image_and_crop_without_black_borders,
 )
+
+log = logging.getLogger(__name__)
 
 
 def P_from_R_t(R: Tensor, t: Tensor) -> Tensor:
@@ -759,10 +762,12 @@ def rotate_image_and_camera_z_axis(
     if (2 * K[0, 2]).round().int() != img.shape[-1] or (
         2 * K[1, 2]
     ).round().int() != img.shape[-2]:
-        print(
-            "WARNING: img center is not centered with the intrinsics, the "
-            "rotation will be wrong",
-            f"found img shape {img.shape}, K[0, 2] {K[0, 2]}, K[1, 2] {K[1, 2]}",
+        log.warning(
+            "img center is not centered with the intrinsics, the rotation "
+            "will be wrong; found img shape %s, K[0, 2] %s, K[1, 2] %s",
+            img.shape,
+            K[0, 2],
+            K[1, 2],
         )
 
     img_rotated, hom, left_top = rotate_image_and_crop_without_black_borders(

@@ -1,5 +1,7 @@
 """Statistics over descriptor matching results."""
 
+import logging
+
 import torch
 from torch import Tensor
 
@@ -8,6 +10,8 @@ from utils.utils_2D import (
     compute_correct_wrong_mismatched_inexistent_unsure_matches,
     mutual_nearest_neighbors_from_score_matrix,
 )
+
+log = logging.getLogger(__name__)
 
 
 def get_margin_and_ratio_from_scores_and_mnn_matrix(
@@ -42,9 +46,9 @@ def get_margin_and_ratio_from_scores_and_mnn_matrix(
 
 
 def _warn_if_nan(name: str, scores: Tensor) -> None:
-    """Print a warning if a score tensor contains NaNs."""
+    """Log a warning if a score tensor contains NaNs."""
     if scores.isnan().any():
-        print(f"WARNING: nan values in {name}, this should never happen")
+        log.warning("nan values in %s, this should never happen", name)
 
 
 def _compute_n_masked(score_matrix_with_inf: Tensor, correct_mask: Tensor) -> Tensor:

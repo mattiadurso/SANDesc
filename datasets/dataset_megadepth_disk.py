@@ -1,6 +1,7 @@
 """MegaDepth/DISK dataset loader for descriptor training."""
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from torchvision import transforms
 
 from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import P_from_R_t, rotate_image_and_camera_z_axis
+
+log = logging.getLogger(__name__)
 
 # Candidate dataset paths; override with the SANDESC_MEGADEPTH_PATH env var.
 DATASET_CANDIDATES = [
@@ -196,9 +199,11 @@ class MegadepthDiskDataset(Dataset):
 
             if img0 is None or img1 is None:
                 if self.verbose:
-                    print(
-                        f"Skipping invalid pair {idx0}, {idx1} in scene "
-                        f"{current_scene_name}"
+                    log.debug(
+                        "Skipping invalid pair %s, %s in scene %s",
+                        idx0,
+                        idx1,
+                        current_scene_name,
                     )
                 continue
 
@@ -259,7 +264,7 @@ class MegadepthDiskDataset(Dataset):
             )
         except (OSError, KeyError, ValueError) as e:
             if self.verbose:
-                print(f"Skipping {img_path.name}: {e}")
+                log.debug("Skipping %s: %s", img_path.name, e)
             return None, None, None, None
 
         P = P_from_R_t(R[None], t[None])[0]
@@ -268,7 +273,7 @@ class MegadepthDiskDataset(Dataset):
             2 * K[1, 2]
         ).round().int() != img0.shape[-2]:
             if self.verbose:
-                print(f"{img_path.name} center is not centered with K, skipping")
+                log.debug("%s center is not centered with K, skipping", img_path.name)
             return None, None, None, None
 
         return img0, depth0, K, P

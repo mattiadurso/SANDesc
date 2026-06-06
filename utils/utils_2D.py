@@ -1,5 +1,6 @@
 """Functions that works with geometry on 2D images."""
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -7,6 +8,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+
+log = logging.getLogger(__name__)
 
 
 def rotatedRectWithMaxArea(w: float, h: float, angle: float) -> tuple[float, ...]:
@@ -516,7 +519,7 @@ def add_bins_to_matching_matrix(matching_matrix: Tensor) -> Tensor:
 
 def compute_corner_mask(x: Tensor, dilation: int = 1, edge_thr: int = 10) -> Tensor:
     """Compute a corner mask using the Hessian edge response (unchecked)."""
-    print("this function is unchecked COMPUTE_CORNER_MASK")
+    log.warning("compute_corner_mask is unchecked")
     dii_kernel = x.new_tensor([[0, 1, 0], [0, -2, 0], [0, 1, 0]])[None, None]
     dij_kernel = x.new_tensor([[1, 0, -1], [0, 0, 0], [-1, 0, 1]])[None, None]
     djj_kernel = x.new_tensor([[0, 0, 0], [1, -2, 1], [0, 0, 0]])[None, None]

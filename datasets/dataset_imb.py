@@ -1,5 +1,6 @@
 """Image Matching Benchmark (IMB) dataset, used for validation."""
 
+import logging
 from pathlib import Path
 
 import h5py
@@ -10,6 +11,8 @@ from torchvision import transforms
 
 from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import P_from_R_t_np, scale_and_crop
+
+log = logging.getLogger(__name__)
 
 # Candidate dataset paths; override with the SANDESC_IMB_PATH env var.
 DATASET_CANDIDATES = [
@@ -201,5 +204,6 @@ class ImageMatchingBenchmark(Dataset):
                     "P1": P1,
                 }
 
-            except Exception:
+            except Exception as e:
+                log.debug("Skipping invalid IMB pair: %s", e)
                 continue

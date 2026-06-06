@@ -1,6 +1,7 @@
 """Checkpoint saving and resuming utilities."""
 
 import contextlib
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,8 @@ import torch
 from torch import nn as nn
 
 from losses.triplet_loss import TripletLoss
+
+log = logging.getLogger(__name__)
 
 
 def save_checkpoint(
@@ -50,7 +53,7 @@ def save_checkpoint(
 
     torch.save(state, checkpoint_path)  # save everything
 
-    print(f"Checkpoint saved at {checkpoint_path}, iteration: {iteration}")
+    log.info("Checkpoint saved at %s, iteration: %s", checkpoint_path, iteration)
     return checkpoint_path
 
 
@@ -62,8 +65,8 @@ def resume_checkpoint(
         model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     except RuntimeError:
-        print(
-            "WARNING: current architecture and model loaded do NOT correspond, "
+        log.warning(
+            "current architecture and model loaded do NOT correspond, "
             "loading with <strict=False>"
         )
         model.load_state_dict(checkpoint["state_dict"], strict=False)

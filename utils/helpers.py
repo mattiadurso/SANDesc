@@ -313,10 +313,10 @@ def resume_from_checkpoint(
 ) -> tuple:
     """Resume from checkpoint."""
     if checkpoint is None:
-        print("No checkpoint provided")
+        log.info("No checkpoint provided")
         return network, optimizer, iteration
 
-    print("Loading checkpoint...")
+    log.info("Loading checkpoint...")
 
     # resuming network
     network.load_state_dict(checkpoint["state_dict"])
@@ -328,7 +328,7 @@ def resume_from_checkpoint(
     iteration = checkpoint["iteration"]
 
     max_iterations = checkpoint["config"]["training"]["max_iterations"]
-    print(f"Resumed from iteration: {iteration:,}/{max_iterations:,}")
+    log.info("Resumed from iteration: %s/%s", f"{iteration:,}", f"{max_iterations:,}")
 
     return network, optimizer, iteration
 
@@ -421,7 +421,7 @@ def seed_management(mode: str, values: None | tuple | int = None) -> None | tupl
             torch.cuda.set_rng_state_all(torch_cuda_all_random_state)
         np.random.set_state(np_random_state)
         random.setstate(python_random_state)
-        print("Random states restored correctly")
+        log.info("Random states restored correctly")
 
     elif mode == "reset":
         # set all the seeds
