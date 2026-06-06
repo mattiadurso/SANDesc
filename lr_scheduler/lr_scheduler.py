@@ -1,7 +1,10 @@
+"""Custom learning rate scheduling strategies."""
+
+import torch
+
+
 class LrManager:
-    """
-    Custom learning rate manager for various scheduling strategies.
-    """
+    """Custom learning rate manager for various scheduling strategies."""
 
     def __init__(
         self,
@@ -11,7 +14,8 @@ class LrManager:
         decay_steps: int = 100_000,
         max_iterations: int = 200_000,
         warmup_steps: int = 2048,
-    ):
+    ) -> None:
+        """Initialize the manager with schedule name and bounds."""
         self.name = name
         self.lr_min = lr_min
         self.lr_max = lr_max
@@ -20,54 +24,54 @@ class LrManager:
         self.lr_decay = (lr_min / lr_max) ** (1 / (decay_steps))
         self.warmup_steps = warmup_steps
 
-    def get_lr(self, iteration: int = 0):
+    def get_lr(self, iteration: int = 0) -> float:
+        """Return the learning rate for the given iteration."""
         if self.name == "constant":
             return self.lr_min
 
-        elif self.name == "warmup_constant":
+        if self.name == "warmup_constant":
             return min(
                 self.lr_max,
                 self.lr_min
                 + ((self.lr_max - self.lr_min) * (iteration / self.warmup_steps)),
             )
 
-        elif self.name == "decay_constant":
+        if self.name == "decay_constant":
             return max(self.lr_min, self.lr_max * (self.lr_decay**iteration))
 
-        elif self.name == "warmup_decay_constant":
+        if self.name == "warmup_decay_constant":
             self.decay = 0.99993
             if iteration < self.warmup_steps:
                 return self.lr_min + (
                     (self.lr_max - self.lr_min) * (iteration / self.warmup_steps)
                 )
-            else:
-                return max(
-                    self.lr_min,
-                    self.lr_max * (self.decay ** (iteration - self.warmup_steps)),
-                )
+            return max(
+                self.lr_min,
+                self.lr_max * (self.decay ** (iteration - self.warmup_steps)),
+            )
 
-        elif self.name == "linear_increase_linear_decrease_constant":
+        if self.name == "linear_increase_linear_decrease_constant":
             if iteration < self.warmup_steps:
                 return self.lr_min + (
                     (self.lr_max - self.lr_min) * (iteration / self.warmup_steps)
                 )
-            else:
-                return max(
-                    self.lr_min,
-                    self.lr_max
-                    - (
-                        (self.lr_max - self.lr_min)
-                        * ((iteration - self.warmup_steps) / self.decay_steps)
-                    ),
-                )
+            return max(
+                self.lr_min,
+                self.lr_max
+                - (
+                    (self.lr_max - self.lr_min)
+                    * ((iteration - self.warmup_steps) / self.decay_steps)
+                ),
+            )
 
-        else:
-            raise ValueError(f"Unknown lr_scheduler: {self.name}")
+        raise ValueError(f"Unknown lr_scheduler: {self.name}")
 
-    def update_lr(self, optimizer, iteration):
+    def update_lr(self, optimizer: torch.optim.Optimizer, iteration: int) -> None:
+        """Set the learning rate on all optimizer param groups in place."""
         lr = self.get_lr(iteration)
         for param_group in optimizer.param_groups:  # inplace
             param_group["lr"] = lr
 
-    def get_lrs_list(self):
+    def get_lrs_list(self) -> list[float]:
+        """Return the full learning rate schedule across all iterations."""
         return [self.get_lr(i) for i in range(self.max_iterations)]

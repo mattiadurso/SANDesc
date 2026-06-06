@@ -130,10 +130,7 @@ megadepth1500_results.ipynb
 retro_md1500.py
 
 notebooks/saved_plots_/strek+AnyDesc_4174108353_20422632d6_o.jpg_375694219_08f3ef71ee_o.jpg_matches.png.png
-
-*.png
 *.csv
-*.pth
 *.json
 outputs/*
 submit_train_prompt.txt
@@ -141,3 +138,5 @@ submit_train.sh
 datasets/download_megadepth_disk
 final_models/.DS_Store
 nb_test_TS3D.ipynb
+demo_dev.ipynb
+final_models/*

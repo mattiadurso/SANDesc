@@ -1,10 +1,11 @@
+"""Triplet loss with hardest-negative mining for descriptor training."""
+
 import torch
-from torch import nn
-from torch import Tensor
+from torch import Tensor, nn
 
 
 class TripletLoss(nn.Module):
-    """Computes the triplet loss with the provided sampled descriptors:"""
+    """Computes the triplet loss with the provided sampled descriptors."""
 
     def __init__(
         self,
@@ -16,17 +17,20 @@ class TripletLoss(nn.Module):
         verbose: bool = False,
         weight_by_keypoints_score: bool = False,
     ) -> None:
-        """Initializes the TripletLoss module
+        """Initializes the TripletLoss module.
 
         Args:
-            margin: the margin for the triplet loss
-            ratio: the ratio for the triplet loss (works similar to the margin, but it's a relative threshold)
-            random_negative_ratio: if > 0, it will sample random negatives with this probability instead of the hardest
-            random_negative_ratio_decay: the decay of the random negative ratio
-            quadratic: whether to square the loss as in SOSNet paper
-            weight_by_keypoints_score: whether to weight the loss by the keypoint score
+            margin: the margin for the triplet loss.
+            ratio: the ratio for the triplet loss (works like the margin, but
+                as a relative threshold).
+            random_negative_ratio: if > 0, sample random negatives with this
+                probability instead of the hardest.
+            random_negative_ratio_decay: the decay of the random negative ratio.
+            quadratic: whether to square the loss as in the SOSNet paper.
+            verbose: whether to print diagnostic messages.
+            weight_by_keypoints_score: whether to weight the loss by the
+                keypoint score.
         """
-
         super().__init__()
         self.name = "TripletLoss"
         self.margin = margin
@@ -44,7 +48,7 @@ class TripletLoss(nn.Module):
         des_neg: Tensor,
         _kpts_scores: Tensor = None,
     ) -> Tensor:
-        """Compute the triplet loss
+        """Compute the triplet loss.
 
         Args:
             des_anchor: the anchor descriptors
@@ -57,14 +61,13 @@ class TripletLoss(nn.Module):
 
         Returns:
             x: the triplet loss
-        """
 
+        """
         scores_pos = (des_anchor * des_pos).sum(-1)  # na
         scores_neg = (des_anchor * des_neg).sum(-1)  # na
 
         if self.margin > 0.0:
             chosen_triplets_margin = scores_pos - self.margin < scores_neg
-            # chosen_triplets_margin = scores_pos - scores_neg > self.margin
         else:
             chosen_triplets_margin = torch.ones_like(scores_pos, dtype=torch.bool)
 
@@ -80,17 +83,16 @@ class TripletLoss(nn.Module):
         if _kpts_scores is not None and self.weight_by_keypoint_score:
             _loss *= _kpts_scores
 
-        _loss = (_loss**2).mean() if self.quadratic else _loss.mean()
-
-        return _loss
+        return (_loss**2).mean() if self.quadratic else _loss.mean()
 
     def __repr__(self) -> str:
-        return f"{self.name}\n   margin: {self.m}"
+        """Return a short representation with the loss name and margin."""
+        return f"{self.name}\n   margin: {self.margin}"
 
     def get_hardest_triplets(
         self, des0: Tensor, des1: Tensor, matches_matrix_GT_with_bins: Tensor
     ) -> Tensor:
-        """Find the hardest triplets for the given descriptors and the GT matches
+        """Find the hardest triplets for the given descriptors and the GT matches.
 
         Args:
             des0: the descriptors from the first image
@@ -103,6 +105,7 @@ class TripletLoss(nn.Module):
         Returns:
             triplets: the triplets tensor
                 n_triplets,3,des_dim
+
         """
         B, n0, des_dim = des0.shape
         _, n1, _ = des1.shape
@@ -131,19 +134,17 @@ class TripletLoss(nn.Module):
                     matches_matrix_GT_with_bins[b, :-1, :-1].sum(-1).max() > 1
                     or matches_matrix_GT_with_bins[b, :-1, :-1].sum(-2).max() > 1
                 ):
-                    # we have more than one match for keypoints (because we run the detector multiscale), we
-                    # want to take the best possible match for each row and column (without actually requiring to
-                    # be mutual best match)
+                    # we have more than one match for keypoints (because we run
+                    # the detector multiscale), so we want to take the best
+                    # possible match for each row and column (without actually
+                    # requiring it to be a mutual best match)
                     scores = torch.zeros((n0, n1), device=device)
                     scores[idx_anchor0, idx_anchor1] = (
                         des0[b][idx_anchor0] * des1[b][idx_pos0]
-                    ).sum(
-                        -1
-                    )  # n_matches_kpts,n_matches_kpts
+                    ).sum(-1)  # n_matches_kpts,n_matches_kpts
                     # keep only the scores that are max by row or by column
                     mask_rows = scores == scores.max(-1, keepdim=True)[0]
                     mask_columns = scores == scores.max(-2, keepdim=True)[0]
-                    # scores_best = scores * (mask_rows + mask_columns)
                     scores_best = scores * (mask_rows * mask_columns)
 
                     # re-find the GT matches from this new score matrix
@@ -153,9 +154,10 @@ class TripletLoss(nn.Module):
                     idx_pos0 = idx_anchor1.clone()  # n_matches_kpts
                     idx_pos1 = idx_anchor0.clone()  # n_matches_kpts
                     n_matches_kpts = best_matches_from_kpts.shape[0]
-                    print(
-                        f"delta n matches: {matches_from_kpts.shape[0] - best_matches_from_kpts.shape[0]}"
+                    delta_n = (
+                        matches_from_kpts.shape[0] - best_matches_from_kpts.shape[0]
                     )
+                    print(f"delta n matches: {delta_n}")
 
             anchor0 = des0[b][idx_anchor0]  # n_matches_kpts,des_dim
             anchor1 = des1[b][idx_anchor1]  # n_matches_kpts,des_dim
@@ -163,14 +165,15 @@ class TripletLoss(nn.Module):
             pos1 = des0[b][idx_pos1]  # n_matches_kpts,des_dim
 
             with torch.no_grad():
-                # we put as negative all the descriptors from img1 which are not the positive
-                # we do this for the single batch
+                # we put as negative all the descriptors from img1 which are
+                # not the positive; we do this for the single batch
                 negatives_all0 = des1[b].detach()  # n_kpts,des_dim
                 negatives_all1 = des0[b].detach()  # n_kpts,des_dim
                 # compute the anchor-negative scores
                 scores_neg0 = anchor0 @ negatives_all0.T  # n_matches_kpts,n_kpts
                 scores_neg1 = anchor1 @ negatives_all1.T  # n_matches_kpts,n_kpts
-                # remove the actual positives from the scores (this works also with multiple positives)
+                # remove the actual positives from the scores (this works also
+                # with multiple positives)
                 scores_neg0[matches_matrix_GT_with_bins[b, :-1, :-1][idx_anchor0]] = (
                     float("-inf")
                 )
@@ -186,13 +189,16 @@ class TripletLoss(nn.Module):
 
                 if score0_hardest.isnan().any() or score1_hardest.isnan().any():
                     print(
-                        "WARNING, one of the score_hardest is nan, this should never happen"
+                        "WARNING, one of the score_hardest is nan, this "
+                        "should never happen"
                     )
                     continue
 
-                # random_negative_ratio starts from 1 and then decays. This means at the beginning the model has no
-                # negatives and pushes all the descriptors to the same point in the embedding space. Then,
-                # as the random_negative_ratio decays, the model starts to use the hardest negatives.
+                # random_negative_ratio starts from 1 and then decays. This
+                # means at the beginning the model has no negatives and pushes
+                # all the descriptors to the same point in the embedding space.
+                # Then, as the random_negative_ratio decays, the model starts
+                # to use the hardest negatives.
                 mask0 = (
                     torch.rand(n_matches_kpts, device=des0.device)
                     < self.random_negative_ratio
@@ -210,7 +216,8 @@ class TripletLoss(nn.Module):
 
             if (idx_pos0 == idx_hardest0).any() or (idx_pos1 == idx_hardest1).any():
                 print(
-                    "WARNING, one of the idx_pos is equal to idx_hardest, this should never happen"
+                    "WARNING, one of the idx_pos is equal to idx_hardest, "
+                    "this should never happen"
                 )
                 if (idx_pos0 == idx_hardest0).all():
                     print(idx_pos0)
@@ -233,9 +240,7 @@ class TripletLoss(nn.Module):
                 print("WARNING, no valid descriptors in image 1")
                 neg0 = torch.zeros(
                     n_matches_kpts, des1.shape[-1], device=des1.device
-                ) * float(
-                    "nan"
-                )  # n_matches_kpts,des_dim
+                ) * float("nan")  # n_matches_kpts,des_dim
             if des0_valid.shape[0] > 0:
                 random_idx = torch.randint(
                     0, des0_valid.shape[0], (n_matches_kpts,), device=device
@@ -247,9 +252,7 @@ class TripletLoss(nn.Module):
                 print("WARNING, no valid descriptors in image 1")
                 neg1 = torch.zeros(
                     n_matches_kpts, des0.shape[-1], device=des0.device
-                ) * float(
-                    "nan"
-                )  # n_matches_kpts,des_dim
+                ) * float("nan")  # n_matches_kpts,des_dim
 
             # stack and concatenate
             triplets_b0 = torch.stack(
@@ -270,14 +273,15 @@ class TripletLoss(nn.Module):
         return triplets
 
     @torch.no_grad()
-    def compute_triplets_stats(self, triplets: Tensor):
-        """computes some useful statistics about the triplets
+    def compute_triplets_stats(self, triplets: Tensor) -> dict[str, float]:
+        """Compute some useful statistics about the triplets.
+
         Args:
             triplets: the triplets tensor
-                n_triplets,3,des_dim
+                n_triplets,3,des_dim.
 
         Returns:
-            stats: a dictionary with the statistics
+            A dictionary with the statistics.
         """
         positive_score = (triplets[:, 0] * triplets[:, 1]).sum(-1)  # n_triplets
         negative_score_triplets = (triplets[:, 0] * triplets[:, 2]).sum(

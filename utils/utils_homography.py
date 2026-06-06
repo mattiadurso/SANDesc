@@ -1,38 +1,42 @@
-"""homography utils"""
+"""homography utils."""
 
 import math
 import sys
 
 sys.path.append("../")
-from typing import Tuple, Dict, Union, Collection
+from collections.abc import Collection
+
 import numpy as np
-from numpy import array
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from numpy import array
+from torch import Tensor
+
 from utils.utils_2D import (
+    compute_quadrilateral_area_from_corners,
     filter_outside,
     mutual_nearest_neighbors_from_dist_matrices,
-    compute_quadrilateral_area_from_corners,
     rotatedRectWithMaxArea,
 )
 
 
 def apply_with_probability(probability: float) -> bool:
-    """return True or False with the specified probability
-    Args:
-        probability: the specified probability
-    Returns:
-        bool: true or false with the specified probability
+    """Return True or False with the specified probability.
 
+    Args:
+        probability: the specified probability.
+
+    Returns:
+        True or False with the specified probability.
     """
     return np.random.rand() < probability
 
 
 def rot_mat(
-    alpha: float, dtype: torch.dtype = None, device: Union[str, torch.device] = None
+    alpha: float, dtype: torch.dtype = None, device: str | torch.device = None
 ) -> Tensor:
-    r_mat = torch.tensor(
+    """Return a 3x3 rotation matrix for angle ``alpha`` (radians)."""
+    return torch.tensor(
         [
             [math.cos(alpha), -math.sin(alpha), 0.0],
             [math.sin(alpha), math.cos(alpha), 0.0],
@@ -41,129 +45,117 @@ def rot_mat(
         dtype=dtype,
         device=device,
     )
-    return r_mat
 
 
 def transl_mat(
-    xy: Union[Tensor, Tuple],
+    xy: Tensor | tuple,
     dtype: torch.dtype = None,
-    device: Union[str, torch.device] = None,
+    device: str | torch.device = None,
 ) -> Tensor:
-    """
-
-    Returns:
-        object:
-    """
-    t_mat = torch.tensor(
+    """Return a 3x3 translation matrix for offset ``xy``."""
+    return torch.tensor(
         [[1.0, 0.0, xy[0]], [0.0, 1.0, xy[1]], [0.0, 0.0, 1.0]],
         dtype=dtype,
         device=device,
     )
-    return t_mat
 
 
-def transl_mat_numpy(xy: Union[np.ndarray, Tuple]) -> np.ndarray:
-    t_mat = np.array([[1.0, 0.0, xy[0]], [0.0, 1.0, xy[1]], [0.0, 0.0, 1.0]])
-    return t_mat
+def transl_mat_numpy(xy: np.ndarray | tuple) -> np.ndarray:
+    """Return a 3x3 translation matrix for offset ``xy`` (numpy)."""
+    return np.array([[1.0, 0.0, xy[0]], [0.0, 1.0, xy[1]], [0.0, 0.0, 1.0]])
 
 
 def rot_mat_numpy(alpha: float) -> np.ndarray:
-    rot_mat = np.array(
+    """Return a 3x3 rotation matrix for angle ``alpha`` (numpy)."""
+    return np.array(
         [
             [np.cos(alpha), -np.sin(alpha), 0.0],
             [np.sin(alpha), np.cos(alpha), 0.0],
             [0.0, 0.0, 1.0],
         ]
     )
-    return rot_mat
 
 
-def scale_mat(scale: Union[float, Tensor, Tuple]) -> Tensor:
-    if isinstance(scale, Collection):
-        s = scale
-    else:
-        s = (scale, scale)
-    scale_matrix = torch.tensor([[s[0], 0.0, 0.0], [0.0, s[1], 0.0], [0.0, 0.0, 1.0]])
-    return scale_matrix
+def scale_mat(scale: float | Tensor | tuple) -> Tensor:
+    """Return a 3x3 scale matrix (isotropic or per-axis)."""
+    s = scale if isinstance(scale, Collection) else (scale, scale)
+    return torch.tensor([[s[0], 0.0, 0.0], [0.0, s[1], 0.0], [0.0, 0.0, 1.0]])
 
 
-def scale_mat_numpy(scale: Union[float, np.ndarray, Tuple]) -> np.ndarray:
-    if isinstance(scale, Collection):
-        s = scale
-    else:
-        s = (scale, scale)
-    scale_mat = np.array([[s[0], 0.0, 0.0], [0.0, s[1], 0.0], [0.0, 0.0, 1.0]])
-    return scale_mat
+def scale_mat_numpy(scale: float | np.ndarray | tuple) -> np.ndarray:
+    """Return a 3x3 scale matrix (isotropic or per-axis, numpy)."""
+    s = scale if isinstance(scale, Collection) else (scale, scale)
+    return np.array([[s[0], 0.0, 0.0], [0.0, s[1], 0.0], [0.0, 0.0, 1.0]])
 
 
-def shear_mat_numpy(shear: Union[np.ndarray, Tuple]) -> np.ndarray:
-    shear_mat = np.array([[1.0, shear[0], 0.0], [shear[1], 1.0, 0.0], [0.0, 0.0, 1.0]])
-    return shear_mat
+def shear_mat_numpy(shear: np.ndarray | tuple) -> np.ndarray:
+    """Return a 3x3 shear matrix (numpy)."""
+    return np.array([[1.0, shear[0], 0.0], [shear[1], 1.0, 0.0], [0.0, 0.0, 1.0]])
 
 
-def perspective_mat_numpy(perspective: Union[np.ndarray, Tuple]) -> np.ndarray:
-    perspective_mat = np.array(
+def perspective_mat_numpy(perspective: np.ndarray | tuple) -> np.ndarray:
+    """Return a 3x3 perspective matrix (numpy)."""
+    return np.array(
         [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [perspective[0], perspective[1], 1.0]]
     )
-    return perspective_mat
 
 
 def warp_points(
     xy: Tensor,
     H: Tensor,
-    img_shape: Union[np.ndarray, Tensor, Tuple[int, int]] = None,
+    img_shape: np.ndarray | Tensor | tuple[int, int] = None,
     border: int = 0,
 ) -> Tensor:
-    """warp the points using the provided homography matrix
+    """Warp the points using the provided homography matrix.
+
     Args:
         xy: input points coordinates with order (x, y)
            B,n,2
         H: input homography
            B,3,3
-        img_shape: if provided, the points that project out of shape are set to 'nan'
-        border: together with img_shape, set to nan the points that are closer to the border than this
+        img_shape: if provided, the points that project out of shape are set
+            to 'nan'.
+        border: together with img_shape, set to nan the points that are closer
+            to the border than this.
+
     Returns:
-        Tensor: the projected points
-           B,n,2
+        The projected points
+           B,n,2.
     """
     assert xy.shape[0] == H.shape[0]
     assert xy.shape[2] == 2
     assert H.shape[1] == 3 and H.shape[2] == 3
-    if isinstance(img_shape, Tensor) or isinstance(img_shape, np.ndarray):
+    if isinstance(img_shape, (Tensor, np.ndarray)):
         assert img_shape.shape == (2,)
 
-    # xy_hom = geom.convert_points_to_homogeneous(xy.to(H.dtype))  # B,n,3
     xy_hom = torch.cat(
         (
             xy,
             torch.ones((xy.shape[0], xy.shape[1], 1), dtype=xy.dtype, device=xy.device),
         ),
         dim=2,
-    ).to(
-        H.dtype
-    )  # B,n,3
+    ).to(H.dtype)  # B,n,3
     xy_proj_hom = xy_hom @ H.to(xy.device).permute(0, 2, 1)  # B,n,3
-    # xy_proj = geom.convert_points_from_homogeneous(xy_proj_hom)   # B
     xy_proj = xy_proj_hom[:, :, 0:2] / xy_proj_hom[:, :, 2:3]  # B,n,2
 
     if img_shape is not None:
         xy_proj = filter_outside(xy_proj, img_shape, border)
 
-    xy_proj = xy_proj.to(xy.dtype)
-
-    return xy_proj
+    return xy_proj.to(xy.dtype)
 
 
 def warp_points_numpy(points: array, H: array) -> array:
-    """warp the points using the provided homography matrix
+    """Warp the points using the provided homography matrix (numpy).
+
     Args:
         points: the input coordinates
             nx2
         H: input homography
             3x3
+
     Returns:
-        array: the projected points
-            nx2
+        The projected points
+            nx2.
     """
     points_dst = H.dot(np.concatenate((points.T, np.ones((1, points.shape[0])))))
     points_dst = points_dst[0:2, :] / points_dst[2, :]
@@ -174,12 +166,15 @@ def get_dist_matrix(
     xy0: Tensor,
     xy1: Tensor,
     H0_1: Tensor,
-    img1_shape: Tuple[int, int] = None,
+    img1_shape: tuple[int, int] | None = None,
     border: int = 0,
     return_projected: bool = False,
-) -> Union[Tensor, Tuple[Tensor, Tensor]]:
-    """compute the distance matrix between the keypoints projected from img0 (rows) to img1 (column) using
-    the provided homography
+) -> Tensor | tuple[Tensor, Tensor]:
+    """Compute the distance matrix between projected img0 points and img1.
+
+    Distances are between the keypoints projected from img0 (rows) to img1
+    (columns) using the provided homography.
+
     Args:
         xy0: input points in img0
             Bxn0x2
@@ -187,13 +182,16 @@ def get_dist_matrix(
             Bxn1x2
         H0_1: homography that warps img0 in img1
             Bx3x3
-        img1_shape: the shape of img1
-        border: together with img1_shape, used to invalidate the points that are close to the image borders
-        return_projected: additionally return the projected points
+        img1_shape: the shape of img1.
+        border: together with img1_shape, used to invalidate the points that
+            are close to the image borders.
+        return_projected: additionally return the projected points.
+
     Returns:
-        Tensor: distance computed in img1 between the projected points xy0_proj and the points in img1
-            CAN HAVE 'nan' if img_shape is provided and the points project out of the second image
-            Bxn0xn1
+        Distance computed in img1 between the projected points xy0_proj and the
+        points in img1. CAN HAVE 'nan' if img_shape is provided and the points
+        project out of the second image
+            Bxn0xn1.
     """
     xy0_proj = warp_points(xy0, H0_1, img1_shape, border)
     # compute the distance between each xy0_proj and xy1
@@ -212,12 +210,13 @@ def compute_GT_matches_matrix_homography(
     xy1: Tensor,
     H0_1: Tensor,
     thr: float = 3.0,
-    img0_shape: Tuple[int, int] = None,
-    img1_shape: Tuple[int, int] = None,
+    img0_shape: tuple[int, int] | None = None,
+    img1_shape: tuple[int, int] | None = None,
     border: int = 0,
     return_distances_and_projected: bool = False,
-) -> Union[Tuple[Tensor, Tensor, Tensor, Tensor, Tensor], Tensor]:
-    """compute GT matching matrix using the homography that maps img0 in img1
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor] | Tensor:
+    """Compute the GT matching matrix using the homography img0 -> img1.
+
     Args:
         xy0: input points in img0
             Bxn0x2
@@ -225,14 +224,16 @@ def compute_GT_matches_matrix_homography(
             Bxn1x2
         H0_1: homography that warps img0 in img1
             Bx3x3
-        thr: threshold for considering a match valid
-        img0_shape: the shape of img0, points that project out are considered invalid
-        img1_shape: the shape of img0, points that project out are considered invalid
-        border: all the keypoints that are closer to the border than this value will not generate valid matches
-        return_distances_and_projected: additionally return computed distances
+        thr: threshold for considering a match valid.
+        img0_shape: the shape of img0; points that project out are invalid.
+        img1_shape: the shape of img1; points that project out are invalid.
+        border: keypoints closer to the border than this value will not
+            generate valid matches.
+        return_distances_and_projected: additionally return computed distances.
+
     Returns:
         GT_matching_matrix: the resulting GT matching matrix
-            B x n0+1 x n1+1   torch.bool
+            B x n0+1 x n1+1   torch.bool.
     """
     dist_matrix0, xy1_proj = get_dist_matrix(
         xy1, xy0, torch.inverse(H0_1), img0_shape, border, return_projected=True
@@ -272,22 +273,26 @@ def compute_GT_matches_matrix_homography(
     return GT_matching_matrix_with_bins
 
 
-def points_in_image(xy: np.ndarray, img_shape: Tuple[int, int]) -> bool:
-    """check if all the points coordinate are contained inside the image
+def points_in_image(xy: np.ndarray, img_shape: tuple[int, int]) -> bool:
+    """Check if all the point coordinates are contained inside the image.
+
     Args:
-        xy: input points coordinate with (x, y)
-        img_shape: the image shape where all the points must be inside
+        xy: input points coordinate with (x, y).
+        img_shape: the image shape where all the points must be inside.
+
     Returns:
-        bool: True if all the points lie inside the image
+        bool: True if all the points lie inside the image.
     """
-    if (xy[:, 0] > 0).all() and (xy[:, 0] < img_shape[1]).all():
-        if (xy[:, 1] > 0).all() and (xy[:, 1] < img_shape[0]).all():
-            return True
-    return False
+    return bool(
+        (xy[:, 0] > 0).all()
+        and (xy[:, 0] < img_shape[1]).all()
+        and (xy[:, 1] > 0).all()
+        and (xy[:, 1] < img_shape[0]).all()
+    )
 
 
-def is_convex(xy: np.ndarray):
-    """check if the polygon is convex"""
+def is_convex(xy: np.ndarray) -> bool:
+    """Check if the polygon is convex."""
     N = xy.shape[0]
 
     # direction of cross product of previous edges
@@ -301,15 +306,14 @@ def is_convex(xy: np.ndarray):
         # if direction of cross product of all adjacent edges are not same
         if direction_new * direction_old < 0:
             return False
-        else:
-            # update old
-            direction_old = direction_new
+        # update old
+        direction_old = direction_new
     return True
 
 
 def generate_homography_for_patch_augmentation(
-    patch_shape: Union[np.ndarray, Tensor],
-    patch_center: Union[np.ndarray, Tensor],
+    patch_shape: np.ndarray | Tensor,
+    patch_center: np.ndarray | Tensor,
     alpha_degrees: float = 0.0,
     x_shear: float = 0.0,
     y_shear: float = 0.0,
@@ -320,6 +324,24 @@ def generate_homography_for_patch_augmentation(
     y_perspective: float = 0.0,
     x_perspective: float = 0.0,
 ) -> np.ndarray:
+    """Compose a homography that augments a patch around its center.
+
+    Args:
+        patch_shape: the (height, width) of the patch.
+        patch_center: the (x, y) center the transforms are applied around.
+        alpha_degrees: rotation angle in degrees.
+        x_shear: horizontal shear factor.
+        y_shear: vertical shear factor.
+        x_translation: horizontal translation.
+        y_translation: vertical translation.
+        x_scale: horizontal scale factor.
+        y_scale: vertical scale factor.
+        y_perspective: vertical perspective factor.
+        x_perspective: horizontal perspective factor.
+
+    Returns:
+        The composed 3x3 homography matrix.
+    """
     assert len(patch_shape) == 2
     Hs = {}
 
@@ -372,78 +394,84 @@ def generate_homography_for_patch_augmentation(
     for k in keys:
         H = Hs[k] @ H
 
-    # translate back and forward such that all the transformations are applyed at the center of the patch
+    # translate back and forward so all the transformations are applied at the
+    # center of the patch
     t = np.array([[1, 0, patch_center[0]], [0, 1, patch_center[1]], [0, 0, 1]])
     H = t @ H @ np.linalg.inv(t)
 
-    # correct the homography such that when warping the image, the patch_center coordinate
-    # ends exactly in the center of the patch
+    # correct the homography so that when warping the image, the patch_center
+    # coordinate ends exactly in the center of the patch
     translation = transl_mat_numpy(
         (patch_center[0] - patch_shape[1] // 2, patch_center[1] - patch_shape[0] // 2)
     )
-    H = H @ translation
-
-    return H
+    return H @ translation
 
 
 def sample_homography(
     patch_center: np.ndarray,
-    patch_shape: Union[Tuple[int, int], np.ndarray],
-    source_img_shape: Union[Tuple[int, int], np.ndarray],
-    params: Dict[str, float],
+    patch_shape: tuple[int, int] | np.ndarray,
+    source_img_shape: tuple[int, int] | np.ndarray,
+    params: dict[str, float],
     max_n_iterations: int = 1000,
-) -> Tuple[np.ndarray, Dict]:
-    """sample a random homography using the provided parameters
+) -> tuple[np.ndarray, dict]:
+    """Sample a random homography using the provided parameters.
+
     Args:
-        patch_center: the coordinates of the patch center given as (x, y)
-        patch_shape: the patch shape that must completely fall inside the warped image given as (H, W)
-        source_img_shape: the input image shape as (H, W)
+        patch_center: the coordinates of the patch center given as (x, y).
+        patch_shape: the patch shape that must completely fall inside the warped
+            image given as (H, W).
+        source_img_shape: the input image shape as (H, W).
         params: a dict that must contain
-            'angle_delta': rotation standard deviation in degrees
-            'angle_std': rotation standard deviation in degrees
-            'angle_p': probability of applying rotation
-            'translation_std': translation standard deviation given in relation to the patch_shape
-                (1.0 means 100% of the patch dimension)
-            'translation_delta': translation max and min value for uniform sampling given in relation to the patch_shape
-                (1.0 means 100% of the patch dimension)
-            'translation_p': probability of applying translation
-            'shear_std': shear standard deviation
+            'angle_delta': rotation standard deviation in degrees,
+            'angle_std': rotation standard deviation in degrees,
+            'angle_p': probability of applying rotation,
+            'translation_std': translation standard deviation given in relation
+                to the patch_shape (1.0 means 100% of the patch dimension),
+            'translation_delta': translation max and min value for uniform
+                sampling given in relation to the patch_shape (1.0 means 100%
+                of the patch dimension),
+            'translation_p': probability of applying translation,
+            'shear_std': shear standard deviation,
             'shear_delta': shear max and min value for uniform sampling
-                (reasonable values are up to 2.0)
+                (reasonable values are up to 2.0),
             'shear_p': probability of applying shear
-                (reasonable values are up to 2.0)
-            'scale_std': scale standard deviation
-            'scale_delta': scale max and min value for uniform sampling
-            'scale_p': probability of applying scale
-            'scale_anisotropic': if true scale for x and y can be different
-            'perspective_std': perspective standard deviation. The code corrects for scale and translation.
-                (reasonable values are up to 0.5, max value is abs(perspective_x) + abs(perspective_y) = 2.0)
-            'perspective_delta': perspective min and max for uniform sampling. The code corrects for scale and translation.
-                (reasonable values are up to 0.5, max value is abs(perspective_x) + abs(perspective_y) = 2.0)
-            'perspective_p': probability of applying perspective
-            'allow_results_with_padding': if true enable homographies that would include outside of the image areas
-                in the output patch
-        max_n_iterations: the number of iterations before exiting returning the homography with just the translation
+                (reasonable values are up to 2.0),
+            'scale_std': scale standard deviation,
+            'scale_delta': scale max and min value for uniform sampling,
+            'scale_p': probability of applying scale,
+            'scale_anisotropic': if true scale for x and y can be different,
+            'perspective_std': perspective standard deviation. The code corrects
+                for scale and translation (reasonable values are up to 0.5, max
+                value is abs(perspective_x) + abs(perspective_y) = 2.0),
+            'perspective_delta': perspective min and max for uniform sampling.
+                The code corrects for scale and translation (reasonable values
+                are up to 0.5, max value is abs(perspective_x) +
+                abs(perspective_y) = 2.0),
+            'perspective_p': probability of applying perspective,
+            'allow_results_with_padding': if true enable homographies that would
+                include areas outside of the image in the output patch.
+        max_n_iterations: the number of iterations before exiting, returning the
+            homography with just the translation.
+
     Returns:
-        H: sampled homography that maps from OUTPUT to INPUT
-            3x3
-        H_params: dict of selected parameters for the homography
+        H: sampled 3x3 homography that maps from OUTPUT to INPUT.
+        H_params: dict of selected parameters for the homography.
     """
-    assert ("angle_std" in params) != (
-        "angle_delta" in params
-    ), "only std or delta must be provided"
-    assert ("translation_std" in params) != (
-        "translation_delta" in params
-    ), "only std or delta must be provided"
-    assert ("shear_std" in params) != (
-        "shear_delta" in params
-    ), "only std or delta must be provided"
-    assert ("scale_std" in params) != (
-        "scale_delta" in params
-    ), "only std or delta must be provided"
-    assert ("perspective_std" in params) != (
-        "perspective_delta" in params
-    ), "only std or delta must be provided"
+    assert ("angle_std" in params) != ("angle_delta" in params), (
+        "only std or delta must be provided"
+    )
+    assert ("translation_std" in params) != ("translation_delta" in params), (
+        "only std or delta must be provided"
+    )
+    assert ("shear_std" in params) != ("shear_delta" in params), (
+        "only std or delta must be provided"
+    )
+    assert ("scale_std" in params) != ("scale_delta" in params), (
+        "only std or delta must be provided"
+    )
+    assert ("perspective_std" in params) != ("perspective_delta" in params), (
+        "only std or delta must be provided"
+    )
 
     H_params = {}
 
@@ -452,7 +480,8 @@ def sample_homography(
             i == max_n_iterations - 1
         ):  # if we reached the max number of iterations return just the translation
             print(
-                "Warning: we could not generate the homography, returning the homography with just the translation"
+                "Warning: we could not generate the homography, returning the "
+                "homography with just the translation"
             )
             H = transl_mat_numpy(
                 (
@@ -582,9 +611,6 @@ def sample_homography(
                 else:
                     x_scale = 1 - (np.random.random() * params["scale_delta"])
                     y_scale = 1 - (np.random.random() * params["scale_delta"])
-                # # get both bigger or smaller images
-                # x_scale = 1 + (np.random.random() * 2 - 1) * params['scale_delta']
-                # y_scale = 1 + (np.random.random() * 2 - 1) * params['scale_delta'] if params.get('scale_anisotropic') else x_scale
             H_params["scale"] = (x_scale, y_scale)
         else:
             x_scale = 1.0
@@ -649,17 +675,16 @@ def sample_homography(
 
         if params["allow_results_with_padding"]:
             break
-        else:
-            # check if all the points are inside the image
-            if points_in_image(points_backprojected, source_img_shape):
-                break
-            else:
-                print(
-                    "Warning: one of the corners of the augmented patch is outside the source image. "
-                    "Increase the source image size and margins, "
-                    "decrease the patch size or the augmentation parameters."
-                )
-                continue
+        # check if all the points are inside the image
+        if points_in_image(points_backprojected, source_img_shape):
+            break
+        print(
+            "Warning: one of the corners of the augmented patch is "
+            "outside the source image. "
+            "Increase the source image size and margins, "
+            "decrease the patch size or the augmentation parameters."
+        )
+        continue
 
     # noinspection PyUnboundLocalVariable
     return H, H_params
@@ -668,10 +693,10 @@ def sample_homography(
 def my_warp_perspective(
     img: Tensor,
     hom: Tensor,
-    shape: Union[Tuple[int, int], Tensor],
+    shape: tuple[int, int] | Tensor,
     mode: str = "bilinear",
 ) -> Tensor:
-    """the provided hom must map from the input to the output"""
+    """The provided hom must map from the input to the output."""
     B, C, H, W = img.shape
     grid = (
         torch.stack(
@@ -699,20 +724,21 @@ def my_warp_perspective(
 
 def rotate_image_and_crop_without_black_borders(
     img: Tensor, angle_degrees: float, mode: str = "bilinear"
-) -> Tuple[Tensor, Tensor, Tensor]:
-    """
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Rotate an image and crop it to the largest border-free rectangle.
+
     Args:
-        img:
-            C,H,W
-        angle_degrees: the rotation angle in degrees
-        mode: the interpolation mode
+        img: input image with shape C,H,W.
+        angle_degrees: the rotation angle in degrees.
+        mode: the interpolation mode.
+
     Returns:
         img_rotated:
             C,H_rotated,W_rotated
         hom_rotation:
             3,3
         left_top: the coordinate of the top-left corner given in (x,y) order
-            2
+            2.
     """
     assert img.ndim == 3, f"img must be C,H,W, but got {img.shape}"
 
@@ -722,7 +748,8 @@ def rotate_image_and_crop_without_black_borders(
     )
     hom_rotation = matrix_translation @ matrix_rotation @ matrix_translation.inverse()
 
-    # find the largest possible rectangle that fits in the rotated image such that there are no black borders
+    # find the largest possible rectangle that fits in the rotated image
+    # such that there are no black borders
     W_output, H_output, W_border, H_border = rotatedRectWithMaxArea(
         img.shape[-1], img.shape[-2], angle_degrees / 180.0 * np.pi
     )
@@ -732,14 +759,12 @@ def rotate_image_and_crop_without_black_borders(
         int(W_border),
         int(H_border),
     )
-    # print(f'angle: {angle_degrees},  {H_output},{W_output},  borders: {H_border},{W_border}')
+    # print(f'angle: {angle_degrees}, {H_output},{W_output},'
+    #       f' borders: {H_border},{W_border}')
 
     # correct the homography with this translation
     matrix_border = transl_mat((-W_border, -H_border), dtype=torch.double)
     hom_rotation_without_border = matrix_border @ hom_rotation
-    # # NOT APPLY ANY CROPPING
-    # hom_rotation_without_border = hom_rotation
-    # H_output, W_output = img.shape[-2], img.shape[-1]
 
     # apply the rotation to the image
     img_rotated = my_warp_perspective(

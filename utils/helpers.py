@@ -1,30 +1,30 @@
-import sys
-import torch
-import logging
-import wandb
-import time
-import numpy as np
-from typing import Optional, Union, Tuple
-from pathlib import Path
-import random
+"""Setup helpers for training: dataloaders, model, optimizer, wrappers."""
 
+import logging
+import random
+import sys
+from pathlib import Path
+
+import numpy as np
+import torch
+import wandb
 from omegaconf import DictConfig, OmegaConf
+from torch import nn
 
 # Local imports
 from datasets.dataset_loaders import (
     get_dataloaders,
 )
-from model.network_descriptor import SANDesc
 from losses.triplet_loss import TripletLoss
 from lr_scheduler.lr_scheduler import LrManager
-
+from model.network_descriptor import SANDesc
 
 # Get logger
 log = logging.getLogger(__name__)
 
 
-def setup_paths():
-    """Add all necessary paths to sys.path"""
+def setup_paths() -> None:
+    """Add all necessary paths to sys.path."""
     project_root = Path(__file__).parent
 
     # Add project root
@@ -51,8 +51,8 @@ def setup_paths():
             sys.path.insert(0, repo_path)
 
 
-def sanitize_config_for_omegaconf(config_dict):
-    """Convert non-serializable types to OmegaConf-compatible types"""
+def sanitize_config_for_omegaconf(config_dict: dict) -> dict:
+    """Convert non-serializable types to OmegaConf-compatible types."""
     sanitized = {}
 
     for key, value in config_dict.items():
@@ -78,7 +78,7 @@ def sanitize_config_for_omegaconf(config_dict):
 
 
 def setup_dtype_from_string(dtype_str: str) -> torch.dtype:
-    """Convert string dtype to torch dtype"""
+    """Convert string dtype to torch dtype."""
     if isinstance(dtype_str, torch.dtype):
         return dtype_str  # Already a dtype
 
@@ -90,8 +90,8 @@ def setup_dtype_from_string(dtype_str: str) -> torch.dtype:
     return dtype_map.get(dtype_str, torch.float16)
 
 
-def load_checkpoint_if_needed(resume_from: Optional[str]) -> Optional[dict]:
-    """Load checkpoint if resume path is provided"""
+def load_checkpoint_if_needed(resume_from: str | None) -> dict | None:
+    """Load checkpoint if resume path is provided."""
     if resume_from is None:
         return None
 
@@ -101,8 +101,8 @@ def load_checkpoint_if_needed(resume_from: Optional[str]) -> Optional[dict]:
     return torch.load(resume_from, weights_only=False)
 
 
-def setup_dataloaders(cfg: DictConfig):
-    """Setup dataloaders"""
+def setup_dataloaders(cfg: DictConfig) -> tuple:
+    """Setup dataloaders."""
     # Validation dataloader (normal)
     config_override = {
         "covisibility_weights": {
@@ -154,9 +154,11 @@ def setup_dataloaders(cfg: DictConfig):
     )
 
     # Training dataloader
-    random_rotation_degrees_fn = lambda: np.random.uniform(
-        -cfg.training.random_training_rotation, cfg.training.random_training_rotation
-    )
+    def random_rotation_degrees_fn() -> float:
+        return np.random.uniform(
+            -cfg.training.random_training_rotation,
+            cfg.training.random_training_rotation,
+        )
 
     train_dataloader, _, compute_GT_matching_matrix_fn, config_dataset = (
         get_dataloaders(
@@ -179,8 +181,8 @@ def setup_dataloaders(cfg: DictConfig):
     )
 
 
-def setup_model_and_optimizer(cfg: DictConfig, checkpoint: Optional[dict]):
-    """Setup model and optimizer"""
+def setup_model_and_optimizer(cfg: DictConfig, checkpoint: dict | None) -> tuple:
+    """Setup model and optimizer."""
     # Model - same parameters as your ModelConfig dataclass
     network = SANDesc(
         ch_in=cfg.model.unet_ch_in,
@@ -213,8 +215,8 @@ def setup_model_and_optimizer(cfg: DictConfig, checkpoint: Optional[dict]):
     return network, optimizer, lr_scheduler, iteration
 
 
-def setup_loss_and_scaler(cfg: DictConfig):
-    """Setup loss and scaler"""
+def setup_loss_and_scaler(cfg: DictConfig) -> tuple:
+    """Setup loss and scaler."""
     # Create TripletLoss with correct config path
     triplet_loss_fn = TripletLoss(
         margin=cfg.triplet_loss.margin,
@@ -230,7 +232,8 @@ def setup_loss_and_scaler(cfg: DictConfig):
     log.info(f"  - ratio: {cfg.triplet_loss.ratio}")
     log.info(f"  - random_negative_ratio: {cfg.triplet_loss.random_negative_ratio}")
     log.info(
-        f"  - random_negative_ratio_decay: {cfg.triplet_loss.random_negative_ratio_decay}"
+        "  - random_negative_ratio_decay: "
+        f"{cfg.triplet_loss.random_negative_ratio_decay}"
     )
     log.info(f"  - verbose: {cfg.triplet_loss.verbose}")
 
@@ -242,14 +245,15 @@ def setup_loss_and_scaler(cfg: DictConfig):
     return triplet_loss_fn, scaler, amp_device_type, amp_dtype
 
 
-def setup_wrappers(cfg: DictConfig):
-    """Setup keypoint detection wrappers"""
+def setup_wrappers(cfg: DictConfig) -> tuple:
+    """Setup keypoint detection wrappers."""
     try:
         # this is imported from set up paths
         from wrappers_manager import wrappers_manager
     except ImportError:
         logging.warning(
-            "Could not import wrappers_manager. Install it from github.com/mattiadurso/PoseBench"
+            "Could not import wrappers_manager. Install it from "
+            "github.com/mattiadurso/PoseBench"
         )
         exit()
 
@@ -263,8 +267,8 @@ def setup_wrappers(cfg: DictConfig):
     return train_wrapper, valid_wrapper
 
 
-def setup_logging(cfg: DictConfig, checkpoint: Optional[dict]):
-    """Setup logging"""
+def setup_logging(cfg: DictConfig, checkpoint: dict | None) -> None:
+    """Setup logging."""
     if cfg.use_wandb:
         if checkpoint is None:
             run_name = f"{cfg.training.train_wrapper}+{cfg.training.run_name}"
@@ -292,23 +296,26 @@ def setup_logging(cfg: DictConfig, checkpoint: Optional[dict]):
         cfg.training.run_id = wandb.run.id
 
 
-def set_deterministic_behavior():
-    """Set deterministic behavior for reproducibility"""
+def set_deterministic_behavior() -> None:
+    """Set deterministic behavior for reproducibility."""
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True, warn_only=True)
     torch.set_float32_matmul_precision("high")
 
 
-def resume_from_checkpoint(network, optimizer, iteration, checkpoint=None):
-    """
-    Resume from checkpoint
-    """
+def resume_from_checkpoint(
+    network: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    checkpoint: dict | None = None,
+) -> tuple:
+    """Resume from checkpoint."""
     if checkpoint is None:
         print("No checkpoint provided")
         return network, optimizer, iteration
 
-    print(f"Loading checkpoint...")
+    print("Loading checkpoint...")
 
     # resuming network
     network.load_state_dict(checkpoint["state_dict"])
@@ -319,14 +326,14 @@ def resume_from_checkpoint(network, optimizer, iteration, checkpoint=None):
     # resuming iteration
     iteration = checkpoint["iteration"]
 
-    print(
-        f'Resumed from iteration: {iteration:,}/{checkpoint["config"]["training"]["max_iterations"]:,}'
-    )
+    max_iterations = checkpoint["config"]["training"]["max_iterations"]
+    print(f"Resumed from iteration: {iteration:,}/{max_iterations:,}")
 
     return network, optimizer, iteration
 
 
-def compute_grad_norm(network):
+def compute_grad_norm(network: nn.Module) -> float:
+    """Compute the global L2 norm of the network gradients."""
     grad_norm = 0.0
     for p in network.parameters():
         if p.grad is not None:
@@ -334,21 +341,19 @@ def compute_grad_norm(network):
 
             param_norm = grad.norm(2)  # L2 norm
             grad_norm += param_norm.item() ** 2
-    grad_norm = grad_norm**0.5  # Final L2 norm over all parameters
-    return grad_norm
+    return grad_norm**0.5  # Final L2 norm over all parameters
 
 
-def seed_management(
-    mode: str, values: Union[None, Tuple, int] = None
-) -> Union[None, Tuple]:
-    """random seed management function
+def seed_management(mode: str, values: None | tuple | int = None) -> None | tuple:
+    """Manage random seeds and RNG states.
+
     Args:
-         mode: can be 'store', 'store_and_reset', 'restore', 'reset'
-         values: can be either the saved randoms states tuple or the seed
+        mode: one of 'store', 'store_and_reset', 'restore', 'reset'.
+        values: either the saved random states tuple or the seed.
+
     Returns:
-        Union[None, Tuple]: current randoms states tuple if mode is 'store' or 'store_and_reset', else is None
-    Raises:
-        None
+        The current random states tuple if mode is 'store' or
+        'store_and_reset', else None.
     """
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -381,7 +386,7 @@ def seed_management(
             python_random_state,
         )
 
-    elif mode == "store":
+    if mode == "store":
         torch_random_state = torch.random.get_rng_state()
         if torch.cuda.is_available():
             torch_cuda_random_state = torch.cuda.get_rng_state()
@@ -400,7 +405,7 @@ def seed_management(
             python_random_state,
         )
 
-    elif mode == "restore" and values is not None:
+    if mode == "restore" and values is not None:
         # restore the random states
         (
             torch_random_state,
@@ -429,3 +434,5 @@ def seed_management(
         random.seed(seed)
     else:
         raise ValueError
+
+    return None

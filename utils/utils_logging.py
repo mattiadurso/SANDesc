@@ -1,6 +1,7 @@
-from typing import Optional
+"""Weights & Biases logging helpers for match visualizations."""
 
 import torch
+import wandb
 from matplotlib import pyplot as plt
 from torch import Tensor
 
@@ -9,7 +10,6 @@ from utils.utils_2D import (
     mutual_nearest_neighbors_from_score_matrix,
 )
 from utils.utils_visualization import plot_image_pair_with_keypoints
-import wandb
 
 
 @torch.no_grad()
@@ -18,13 +18,14 @@ def log_match_plot(
     img1: Tensor,
     kpts0: Tensor,
     kpts1: Tensor,
-    score_matrix: Optional[Tensor],
-    matching_matrix_GT_with_bins: Optional[Tensor],
+    score_matrix: Tensor | None,
+    matching_matrix_gt_with_bins: Tensor | None,
     batch_idx: int,
     iteration: int,
     tag: str = "",
     caption: str = "img",
-):
+) -> None:
+    """Log a keypoint match visualization for an image pair to wandb."""
     assert img0.shape[0] == 1, f"img0.shape[0] == {img0.shape[0]} != 1"
 
     if score_matrix is not None:
@@ -33,7 +34,7 @@ def log_match_plot(
         )  # 1,n_kpts0,n_kpts1
         matching_matrix_agg = (
             compute_correct_wrong_mismatched_inexistent_unsure_matches(
-                matching_matrix_des, matching_matrix_GT_with_bins
+                matching_matrix_des, matching_matrix_gt_with_bins
             )
         )
         matching_matrix_agg = matching_matrix_agg[0]

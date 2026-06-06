@@ -17,7 +17,7 @@ warmup_steps: 2048
 # Training
 dataset: "disk" # or "terrasky"
 max_n_keypoints: 2048
-max_iterations: 100000
+max_iterations: 22_000
 batch_size: 14
 image_size: 448
 photo_aug_in_training: False

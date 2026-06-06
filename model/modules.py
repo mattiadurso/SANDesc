@@ -1,20 +1,17 @@
+"""Reusable network building blocks: UNet blocks and CBAM attention."""
+
 import torch
 import torch.nn as nn
-from torch import Tensor
 import torch.nn.functional as F
-
-from typing import Optional
-
+from torch import Tensor
 
 # --------------------------------------------------------
 #                   HELPERS
 # --------------------------------------------------------
 
 
-def get_norm(norm: str, ch_in: int):
-    """
-    Returns a normalization layer given a string.
-    """
+def get_norm(norm: str, ch_in: int) -> nn.Module:
+    """Returns a normalization layer given a string."""
     assert norm in [
         "batch",
         "instance",
@@ -32,7 +29,8 @@ def get_norm(norm: str, ch_in: int):
     return norms[norm]
 
 
-def get_activ(activ: str):
+def get_activ(activ: str) -> nn.Module:
+    """Return an activation layer given a string."""
     assert activ in ["relu", "gelu", None], f"Activation type {activ} not recognized"
     activations = {
         "relu": nn.ReLU(inplace=False),
@@ -45,11 +43,10 @@ def get_activ(activ: str):
 # --------------------------------------------------------
 #                   UNET MODULES
 # --------------------------------------------------------
-class Unet_block(nn.Module):
-    """
-    Pre-activation block for Unet. Similar to DISK.
-    Why pre-activ? https://arxiv.org/abs/1603.05027
+class UNetBlock(nn.Module):
+    """Pre-activation block for the UNet, similar to DISK.
 
+    Why pre-activation? See https://arxiv.org/abs/1603.05027.
     """
 
     def __init__(
@@ -59,7 +56,8 @@ class Unet_block(nn.Module):
         kernel_size: int = 5,
         norm: str = "batch",
         activ: str = "relu",
-    ):
+    ) -> None:
+        """Build a norm -> activation -> conv pre-activation block."""
         super().__init__()
 
         self.conv = nn.Conv2d(
@@ -69,43 +67,49 @@ class Unet_block(nn.Module):
         self.activ = get_activ(activ)
 
     def forward(self, x: Tensor) -> Tensor:
+        """Apply norm, activation and convolution to x."""
         x = self.norm(x)
         x = self.activ(x)
-        x = self.conv(x)
-        return x
+        return self.conv(x)
 
 
-class Unet_down_block(nn.Module):
+class UNetDownBlock(nn.Module):
+    """Downsampling UNet block with optional skip and attention."""
+
     def __init__(
         self,
         ch_in: int,
         ch_out: int,
         kernel_size: int = 5,
-        activ: Optional[str] = "relu",
+        activ: str | None = "relu",
         norm: str = "batch",
         third_block: bool = False,
         skip_connection: bool = False,
         spatial_attention: bool = False,
-    ):
-        """
+    ) -> None:
+        """Build a downsampling block.
+
         Args:
-            ch_in: int, number of input channels
-            ch_out: int, number of output channels
-            kernel_size: int, kernel size for the convolutions
-            activ: str, activation function
-            norm: str, normalization layer
-            skip_connection: bool, if True, adds a skip connection. If false same unet as in DISK and S-TREK.
-            spatial_attention: bool, if True, adds a spatial attention module. Works only if skip_connection is True.
+            ch_in: Number of input channels.
+            ch_out: Number of output channels.
+            kernel_size: Kernel size for the convolutions.
+            activ: Activation function.
+            norm: Normalization layer.
+            third_block: If True, add a third UNet block.
+            skip_connection: If True, add a skip connection. If False, the same
+                unet as in DISK and S-TReK.
+            spatial_attention: If True, add a spatial attention module. Works
+                only if skip_connection is True.
         """
         super().__init__()
         self.skip_connection = skip_connection
 
-        self.block1 = Unet_block(ch_in, ch_out, kernel_size, norm, activ)
+        self.block1 = UNetBlock(ch_in, ch_out, kernel_size, norm, activ)
         if skip_connection:
             self.align = nn.Conv2d(ch_in, ch_out, kernel_size=1, padding=0, bias=False)
-            self.block2 = Unet_block(ch_out, ch_out, kernel_size, norm, activ)
+            self.block2 = UNetBlock(ch_out, ch_out, kernel_size, norm, activ)
             self.block3 = (
-                Unet_block(ch_out, ch_out, kernel_size, norm, activ)
+                UNetBlock(ch_out, ch_out, kernel_size, norm, activ)
                 if third_block
                 else nn.Identity()
             )
@@ -115,6 +119,7 @@ class Unet_down_block(nn.Module):
         self.cbam = CBAM(gate_channels=ch_out) if spatial_attention else nn.Identity()
 
     def forward(self, x: Tensor) -> Tensor:
+        """Downsample x and apply the block(s)."""
         x_ = self.pool(x)
         x = self.block1(x_)
         if self.skip_connection:
@@ -125,28 +130,31 @@ class Unet_down_block(nn.Module):
         return x
 
 
-class Unet_up_block(nn.Module):
+class UNetUpBlock(nn.Module):
+    """Upsampling UNet block with optional skip and attention."""
+
     def __init__(
         self,
         ch_in: int,
         ch_out: int,
         kernel_size: int = 5,
-        activ: Optional[str] = None,
+        activ: str | None = None,
         norm: str = "batch",
         third_block: bool = False,
         skip_connection: bool = False,
         spatial_attention: bool = False,
-    ):
+    ) -> None:
+        """Build an upsampling block mirroring UNetDownBlock."""
         super().__init__()
         self.skip_connection = skip_connection
-        self.block1 = Unet_block(ch_in, ch_out, kernel_size, norm, activ)
+        self.block1 = UNetBlock(ch_in, ch_out, kernel_size, norm, activ)
         if skip_connection:
             self.align = nn.Conv2d(
                 ch_out, ch_out, kernel_size=1, padding=0, bias=False
             )  # should I add this for the sake of simmetry?
-            self.block2 = Unet_block(ch_out, ch_out, kernel_size, norm, activ)
+            self.block2 = UNetBlock(ch_out, ch_out, kernel_size, norm, activ)
             self.block3 = (
-                Unet_block(ch_out, ch_out, kernel_size, norm, activ)
+                UNetBlock(ch_out, ch_out, kernel_size, norm, activ)
                 if third_block
                 else nn.Identity()
             )
@@ -157,7 +165,8 @@ class Unet_up_block(nn.Module):
         # Spatial attention
         self.cbam = CBAM(gate_channels=ch_out) if spatial_attention else nn.Identity()
 
-    def forward(self, x: Tensor, x_from_past: Tensor = None):
+    def forward(self, x: Tensor, x_from_past: Tensor = None) -> Tensor:
+        """Upsample x, concatenate the skip tensor and apply the block(s)."""
         x_ = self.upsample_2x(x)  # c -> c
         x = torch.cat([x_, x_from_past], dim=1)
         x = self.block1(x)
@@ -176,20 +185,23 @@ class Unet_up_block(nn.Module):
 
 
 class BasicConv(nn.Module):
+    """Convolution followed by optional batch norm and activation."""
+
     def __init__(
         self,
-        in_planes,
-        out_planes,
-        kernel_size,
-        stride=1,
-        padding=0,
-        dilation=1,
-        groups=1,
-        relu=True,
-        bn=True,
-        bias=False,
-    ):
-        super(BasicConv, self).__init__()
+        in_planes: int,
+        out_planes: int,
+        kernel_size: int,
+        stride: int = 1,
+        padding: int = 0,
+        dilation: int = 1,
+        groups: int = 1,
+        relu: bool = True,
+        bn: bool = True,
+        bias: bool = False,
+    ) -> None:
+        """Build the conv (+ optional batch norm and ReLU) block."""
+        super().__init__()
         self.out_channels = out_planes
         self.conv = nn.Conv2d(
             in_planes,
@@ -208,7 +220,8 @@ class BasicConv(nn.Module):
         )
         self.relu = nn.GELU() if relu else None
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
+        """Apply conv, then optional norm and activation."""
         x = self.conv(x)
         if self.bn is not None:
             x = self.bn(x)
@@ -218,13 +231,26 @@ class BasicConv(nn.Module):
 
 
 class Flatten(nn.Module):
-    def forward(self, x):
+    """Flatten all dimensions except the batch dimension."""
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Flatten x to shape [batch, -1]."""
         return x.view(x.size(0), -1)
 
 
 class ChannelGate(nn.Module):
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=["avg"]):
-        super(ChannelGate, self).__init__()
+    """Channel attention gate of CBAM."""
+
+    def __init__(
+        self,
+        gate_channels: int,
+        reduction_ratio: int = 16,
+        pool_types: list[str] | None = None,
+    ) -> None:
+        """Build the channel attention MLP over the given pooling types."""
+        super().__init__()
+        if pool_types is None:
+            pool_types = ["avg"]
         self.gate_channels = gate_channels
         self.mlp = nn.Sequential(
             Flatten(),
@@ -234,7 +260,8 @@ class ChannelGate(nn.Module):
         )
         self.pool_types = pool_types
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
+        """Reweight channels of x by pooled channel attention."""
         channel_att_sum = None
         b, c, h, w = x.size()
         for pool_type in self.pool_types:
@@ -252,12 +279,14 @@ class ChannelGate(nn.Module):
             )
 
         scale = torch.sigmoid(channel_att_sum).view(b, c, 1, 1)
-        # scale = F.sigmoid( channel_att_sum ).unsqueeze(2).unsqueeze(3).expand_as(x)
         return x * scale
 
 
 class ChannelPool(nn.Module):
-    def forward(self, x):
+    """Pool channels into max and mean feature maps."""
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Concatenate channel-wise max and mean of x."""
         return torch.cat(
             (torch.max(x, dim=1, keepdim=True)[0], torch.mean(x, dim=1, keepdim=True)),
             dim=1,
@@ -265,8 +294,11 @@ class ChannelPool(nn.Module):
 
 
 class SpatialGate(nn.Module):
-    def __init__(self):
-        super(SpatialGate, self).__init__()
+    """Spatial attention gate of CBAM."""
+
+    def __init__(self) -> None:
+        """Build the spatial attention convolution."""
+        super().__init__()
         kernel_size = 7
         self.compress = ChannelPool()
         self.spatial = BasicConv(
@@ -279,7 +311,8 @@ class SpatialGate(nn.Module):
             bn=True,
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
+        """Reweight spatial locations of x by spatial attention."""
         x_compress = self.compress(x)
         x_out = self.spatial(x_compress)
         scale = torch.sigmoid(x_out)
@@ -287,19 +320,24 @@ class SpatialGate(nn.Module):
 
 
 class CBAM(nn.Module):
+    """Convolutional Block Attention Module (channel + spatial attention)."""
+
     def __init__(
         self,
-        gate_channels,
-        reduction_ratio=16,
-        pool_types=["avg", "max"],
-        use_spatial=True,
-    ):
-        super(CBAM, self).__init__()
+        gate_channels: int,
+        reduction_ratio: int = 16,
+        pool_types: list[str] | None = None,
+        use_spatial: bool = True,
+    ) -> None:
+        """Build the channel and (optional) spatial attention gates."""
+        super().__init__()
+        if pool_types is None:
+            pool_types = ["avg", "max"]
 
         self.ChannelGate = ChannelGate(gate_channels, reduction_ratio, pool_types)
         self.SpatialGate = SpatialGate() if use_spatial else nn.Identity()
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
+        """Apply channel then spatial attention to x."""
         x_out = self.ChannelGate(x)
-        x_out = self.SpatialGate(x_out)
-        return x_out
+        return self.SpatialGate(x_out)

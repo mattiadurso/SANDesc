@@ -1,36 +1,36 @@
+"""Training entry point for the SANDesc descriptor network."""
+
+import datetime
+import logging
 import time
-import wandb
+from pathlib import Path
+
 import hydra
 import torch
-import logging
-import datetime
-import torch.nn.functional as F
-
-from pathlib import Path
+import wandb
 from omegaconf import DictConfig, OmegaConf
 
 # Training utils imports
 from datasets.dataset_loaders import (
     transform_from_normalized_rgb_to_grayscale,
 )
-
 from utils.descriptor_stats import compute_stats
-from utils.descriptors_utils import extract_keypoints, evaluate
+from utils.descriptors_utils import evaluate, extract_keypoints
+from utils.helpers import (
+    compute_grad_norm,
+    load_checkpoint_if_needed,
+    sanitize_config_for_omegaconf,
+    seed_management,
+    set_deterministic_behavior,
+    setup_dataloaders,
+    setup_logging,
+    setup_loss_and_scaler,
+    setup_model_and_optimizer,
+    setup_paths,
+    setup_wrappers,
+)
 from utils.utils_logging import log_match_plot
 from utils.utils_saving import save_checkpoint
-from utils.helpers import (
-    sanitize_config_for_omegaconf,
-    load_checkpoint_if_needed,
-    compute_grad_norm,
-    setup_dataloaders,
-    setup_model_and_optimizer,
-    setup_loss_and_scaler,
-    setup_wrappers,
-    setup_logging,
-    set_deterministic_behavior,
-    setup_paths,
-    seed_management,
-)
 
 setup_paths()
 
@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Main training function"""
+    """Main training function."""
     log.info("Configuration:")
     log.info(f"\n{OmegaConf.to_yaml(cfg)}")
 
@@ -52,7 +52,8 @@ def main(cfg: DictConfig) -> None:
     # Use checkpoint config if resuming
     if checkpoint is not None:
         try:
-            # Sanitize the checkpoint config to handle torch.dtype and other non-primitive types
+            # Sanitize the checkpoint config to handle torch.dtype and other
+            # non-primitive types
             sanitized_checkpoint_config = sanitize_config_for_omegaconf(
                 checkpoint["config"]
             )
@@ -99,7 +100,8 @@ def main(cfg: DictConfig) -> None:
             "random_negative_ratio_decay", triplet_loss_fn.random_negative_ratio_decay
         )
         log.info(
-            f"Loaded triplet loss state: random_negative_ratio={triplet_loss_fn.random_negative_ratio}"
+            "Loaded triplet loss state: random_negative_ratio="
+            f"{triplet_loss_fn.random_negative_ratio}"
         )
 
     train_wrapper, valid_wrapper = setup_wrappers(cfg)
@@ -123,7 +125,7 @@ def main(cfg: DictConfig) -> None:
         try:
             seed_management("restore", checkpoint["random_state"])
             log.info(f"Resumed from iteration {checkpoint['iteration']:,}")
-        except:
+        except (KeyError, TypeError):
             log.warning("Random states not found in the checkpoint")
         seed_management("reset")
 
@@ -143,7 +145,6 @@ def main(cfg: DictConfig) -> None:
                     and iteration % cfg.training.evaluate_every_n_iterations == 0
                     # and iteration > 0
                 ):
-
                     log.info(">>> Evaluating on IMB validation set...")
                     valid_wrapper.multiscale = cfg.training.validation_multiscale
 
@@ -185,11 +186,6 @@ def main(cfg: DictConfig) -> None:
                         return_stats=False,
                     )
 
-                    # # MD1500 validation
-                    # evaluate(
-                    #     ...
-                    # )
-
                     valid_wrapper.multiscale = False
 
                 # Training step
@@ -208,7 +204,7 @@ def main(cfg: DictConfig) -> None:
                     kpts1 = kpts1[mask].to(cfg.device)
 
                 # Move data to device
-                for key in data.keys():
+                for key in data:
                     if key in data:
                         data[key] = data[key][mask].to(cfg.device)
 
@@ -319,7 +315,10 @@ def main(cfg: DictConfig) -> None:
                         batch_idx=0,
                         iteration=iteration,
                         tag="train_",
-                        caption=f"img-{iteration}\nn_matches_GT: {matching_matrix_GT_with_bins[0, :-1, :-1].sum()}",
+                        caption=(
+                            f"img-{iteration}\nn_matches_GT: "
+                            f"{matching_matrix_GT_with_bins[0, :-1, :-1].sum()}"
+                        ),
                     )
 
                 # Checkpointing
@@ -332,7 +331,8 @@ def main(cfg: DictConfig) -> None:
                         else Path(cfg.save_path)
                     )
 
-                    # Use original config structure (it should already have triplet_loss)
+                    # Use original config structure (it should already have
+                    # triplet_loss)
                     save_config = OmegaConf.to_container(cfg, resolve=True)
 
                     # Only sanitize the dtype if needed
@@ -361,8 +361,10 @@ def main(cfg: DictConfig) -> None:
                     datetime.timedelta(seconds=time.time() - start_time)
                 ).split(".")[0]
                 log.info(
-                    f"{iteration+1:,}/{cfg.training.max_iterations:,}, elapsed: {elapsed} | "
-                    f"loss: {loss.item():.4f}, lr: {old_lr:.4f}, pairs: {mask.sum().item()}/{B}, "
+                    f"{iteration + 1:,}/{cfg.training.max_iterations:,}, "
+                    f"elapsed: {elapsed} | "
+                    f"loss: {loss.item():.4f}, lr: {old_lr:.4f}, "
+                    f"pairs: {mask.sum().item()}/{B}, "
                     f"total images: {total_images:,}"
                 )
 
