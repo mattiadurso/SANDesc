@@ -11,22 +11,20 @@ from torch import Tensor
 
 
 def get_norm(norm: str, ch_in: int) -> nn.Module:
-    """Returns a normalization layer given a string."""
-    assert norm in [
-        "batch",
-        "instance",
-        "group",
-        None,
-    ], f"Norm type {norm} not recognized"
+    """Returns a normalization layer given a string.
 
-    norms = {
-        "batch": nn.BatchNorm2d(ch_in),
-        "instance": nn.InstanceNorm2d(ch_in, affine=True),
-        "group": nn.GroupNorm(num_groups=ch_in // 16, num_channels=ch_in),
-        None: nn.Identity(),
-    }
-
-    return norms[norm]
+    Only the requested layer is instantiated; ``group`` requires ``ch_in`` to
+    be a multiple of 16.
+    """
+    if norm == "batch":
+        return nn.BatchNorm2d(ch_in)
+    if norm == "instance":
+        return nn.InstanceNorm2d(ch_in, affine=True)
+    if norm == "group":
+        return nn.GroupNorm(num_groups=ch_in // 16, num_channels=ch_in)
+    if norm is None:
+        return nn.Identity()
+    raise ValueError(f"Norm type {norm} not recognized")
 
 
 def get_activ(activ: str) -> nn.Module:
