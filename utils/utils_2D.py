@@ -92,7 +92,7 @@ def grid_sample_nan(
     if img.dim() == 3:
         # remove the channel dimension from the result at the end of the function
         squeeze_result = True
-        img.unsqueeze_(1)
+        img = img.unsqueeze(1)
     else:
         squeeze_result = False
 
@@ -129,8 +129,7 @@ def grid_sample_nan(
         sampled[xy_invalid[:, None, :, :].repeat(1, C, 1, 1)] = float("nan")
 
     if squeeze_result:
-        img.squeeze_(1)
-        sampled.squeeze_(1)
+        sampled = sampled.squeeze(1)
 
     return sampled, mask_img_nan
 

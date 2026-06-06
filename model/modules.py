@@ -165,7 +165,7 @@ class UNetUpBlock(nn.Module):
         # Spatial attention
         self.cbam = CBAM(gate_channels=ch_out) if spatial_attention else nn.Identity()
 
-    def forward(self, x: Tensor, x_from_past: Tensor = None) -> Tensor:
+    def forward(self, x: Tensor, x_from_past: Tensor | None = None) -> Tensor:
         """Upsample x, concatenate the skip tensor and apply the block(s)."""
         x_ = self.upsample_2x(x)  # c -> c
         x = torch.cat([x_, x_from_past], dim=1)

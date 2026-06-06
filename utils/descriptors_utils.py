@@ -314,9 +314,9 @@ def evaluate(
             matches_matrix_GT_with_bins,
             img0,
             img1,
-            kpts0_matched,
-            kpts1_matched,
         )
+        if compute_pose_stats:
+            del kpts0_matched, kpts1_matched
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -362,13 +362,11 @@ def evaluate(
         stats_df,
         stats_mean_df,
         stats_mean,
-        pose_error_df,
         pose_error,
-        auc_max,
-        auc_R,
-        auc_t,
         detector_wrapper.custom_descriptor,
     )
+    if compute_pose_stats:
+        del pose_error_df, auc_max, auc_R, auc_t
     gc.collect()
     torch.cuda.empty_cache()
     return None

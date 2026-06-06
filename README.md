@@ -46,6 +46,14 @@ conda env create -f environment.yml
 conda activate sandesc
 ```
 
+3. Point the code at your data and the [PoseBench](https://github.com/mattiadurso/PoseBench) checkout via environment variables (each falls back to a built-in default if unset):
+```bash
+export POSEBENCH_PATH=/path/to/posebench       # PoseBench wrappers (training/testing)
+export SANDESC_MEGADEPTH_PATH=/path/to/megadepth/data
+export SANDESC_IMB_PATH=/path/to/IMB/validation
+export SANDESC_TERRASKY_PATH=/path/to/terrasky/data
+```
+
 ## Demo
 To make the demo easier to run, we run ALIKED on the demo images and saved its keypoints and descriptors. Since SANDesc is a descriptor module, it shares the same keypoints extracted by ALIKED. Then, only the descriptors are replaced and pose recomputed. Use `demo.ipynb` to visualize the demo.
 

@@ -41,6 +41,40 @@ def get_margin_and_ratio_from_scores_and_mnn_matrix(
     return margin, ratio
 
 
+def _warn_if_nan(name: str, scores: Tensor) -> None:
+    """Print a warning if a score tensor contains NaNs."""
+    if scores.isnan().any():
+        print(f"WARNING: nan values in {name}, this should never happen")
+
+
+def _compute_n_masked(score_matrix_with_inf: Tensor, correct_mask: Tensor) -> Tensor:
+    """Count mismatches shielded by a correct match (over rows and columns).
+
+    A potential mismatch is "masked" when, in a row/column holding a correct
+    match, the row/column max score falls on the correct-match cell.
+    """
+    matches_correct_idx = correct_mask.nonzero()  # (n_matches_correct, 3)
+    # mask with a one where the score is the row max (finite only)
+    row_max_mask = (
+        score_matrix_with_inf == score_matrix_with_inf.max(dim=-1, keepdim=True)[0]
+    ) * score_matrix_with_inf.isfinite()  # (B,n_kpts0,n_kpts1)
+    # index only the columns with a correct match; subtract one to drop the
+    # correct match itself
+    masked_columns = row_max_mask[
+        matches_correct_idx[:, 0], :, matches_correct_idx[:, 2]
+    ]  # n_masked_columns, n_kpts0
+    n_masked_by_columns = masked_columns.sum() - masked_columns.shape[0]
+    # same over columns
+    column_max_mask = (
+        score_matrix_with_inf == score_matrix_with_inf.max(dim=-2, keepdim=True)[0]
+    ) * score_matrix_with_inf.isfinite()  # (B,n_kpts0,n_kpts1)
+    masked_rows = column_max_mask[
+        matches_correct_idx[:, 0], matches_correct_idx[:, 1], :
+    ]  # n_masked_rows, n_kpts1
+    n_masked_by_rows = masked_rows.sum() - masked_rows.shape[0]
+    return n_masked_by_columns + n_masked_by_rows
+
+
 @torch.no_grad()
 def compute_stats(
     score_matrix_des: Tensor,
@@ -94,24 +128,15 @@ def compute_stats(
     scores_all = scores_all[~torch.isnan(scores_all)]
     scores_negative_all = scores_negative_all[~torch.isnan(scores_negative_all)]
 
-    if scores_GT_matches.isnan().any():
-        print("WARNING: nan values in scores_GT_matches, this should never happen")
-    if scores_matches_proposed.isnan().any():
-        print(
-            "WARNING: nan values in scores_matches_proposed, this should never happen"
-        )
-    if scores_matches_correct.isnan().any():
-        print("WARNING: nan values in scores_matches_correct, this should never happen")
-    if scores_matches_wrong.isnan().any():
-        print("WARNING: nan values in scores_matches_wrong, this should never happen")
-    if scores_matches_mismatched.isnan().any():
-        print(
-            "WARNING: nan values in scores_matches_mismatched, this should never happen"
-        )
-    if scores_matches_inexistent.isnan().any():
-        print(
-            "WARNING: nan values in scores_matches_inexistent, this should never happen"
-        )
+    for name, scores in [
+        ("scores_GT_matches", scores_GT_matches),
+        ("scores_matches_proposed", scores_matches_proposed),
+        ("scores_matches_correct", scores_matches_correct),
+        ("scores_matches_wrong", scores_matches_wrong),
+        ("scores_matches_mismatched", scores_matches_mismatched),
+        ("scores_matches_inexistent", scores_matches_inexistent),
+    ]:
+        _warn_if_nan(name, scores)
 
     # compute stats
     matches_precision = n_matches_correct / n_matches_proposed
@@ -132,75 +157,32 @@ def compute_stats(
         best_two_scores1[:, 1, :],
     )  # (B,n_kpts1) (B,n_kpts1)
 
-    # margin for all the proposed matches
-    margin_proposed, ratio_proposed = get_margin_and_ratio_from_scores_and_mnn_matrix(
-        matching_matrix_agg.proposed,
-        best_scores0,
-        second_best_scores0,
-        second_best_scores1,
-    )
-    # correct matches margin
-    margin_correct, ratio_correct = get_margin_and_ratio_from_scores_and_mnn_matrix(
-        matching_matrix_agg.correct,
-        best_scores0,
-        second_best_scores0,
-        second_best_scores1,
-    )
-    # wrong matches margin
-    margin_wrong, ratio_wrong = get_margin_and_ratio_from_scores_and_mnn_matrix(
-        matching_matrix_agg.wrong,
-        best_scores0,
-        second_best_scores0,
-        second_best_scores1,
-    )
-    # mismatched matches margin
-    margin_mismatched, ratio_mismatched = (
-        get_margin_and_ratio_from_scores_and_mnn_matrix(
-            matching_matrix_agg.mismatched,
-            best_scores0,
-            second_best_scores0,
-            second_best_scores1,
+    # margin and ratio per match category
+    margin, ratio = {}, {}
+    for category in ("proposed", "correct", "wrong", "mismatched", "inexistent"):
+        margin[category], ratio[category] = (
+            get_margin_and_ratio_from_scores_and_mnn_matrix(
+                getattr(matching_matrix_agg, category),
+                best_scores0,
+                second_best_scores0,
+                second_best_scores1,
+            )
         )
+    margin_proposed, margin_correct, margin_wrong = (
+        margin["proposed"],
+        margin["correct"],
+        margin["wrong"],
     )
-    # inexistent matches margin
-    margin_inexistent, ratio_inexistent = (
-        get_margin_and_ratio_from_scores_and_mnn_matrix(
-            matching_matrix_agg.inexistent,
-            best_scores0,
-            second_best_scores0,
-            second_best_scores1,
-        )
+    margin_mismatched, margin_inexistent = margin["mismatched"], margin["inexistent"]
+    ratio_proposed, ratio_correct, ratio_wrong = (
+        ratio["proposed"],
+        ratio["correct"],
+        ratio["wrong"],
     )
+    ratio_mismatched, ratio_inexistent = ratio["mismatched"], ratio["inexistent"]
 
-    # find out how many possible mismatched have been shielded by a correct
-    # match. we do this by counting how many columns have the max score that
-    # corresponds to a column where there is a correct match
-    matches_correct_idx = (
-        matching_matrix_agg.correct.nonzero()
-    )  # (n_matches_correct, 2)
-    # we first create a mask with a one in the position where the score is the
-    # max for that row
-    row_max_mask = (
-        score_matrix_des_with_inf
-        == score_matrix_des_with_inf.max(dim=-1, keepdim=True)[0]
-    ) * score_matrix_des_with_inf.isfinite()  # (B,n_kpts0,n_kpts1)
-    # we then index only the columns where there was a correct match, and sum
-    # over those columns (subtracting always one as we do not want to count
-    # the correct match)
-    masked_columns = row_max_mask[
-        matches_correct_idx[:, 0], :, matches_correct_idx[:, 2]
-    ]  # n_masked_columns, n_kpts0
-    n_masked_by_columns = masked_columns.sum() - masked_columns.shape[0]
-    # do the same by columns
-    column_max_mask = (
-        score_matrix_des_with_inf
-        == score_matrix_des_with_inf.max(dim=-2, keepdim=True)[0]
-    ) * score_matrix_des_with_inf.isfinite()  # (B,n_kpts0,n_kpts1)
-    masked_rows = column_max_mask[
-        matches_correct_idx[:, 0], matches_correct_idx[:, 1], :
-    ]  # n_masked_rows, n_kpts1
-    n_masked_by_rows = masked_rows.sum() - masked_rows.shape[0]
-    n_masked = n_masked_by_columns + n_masked_by_rows
+    # count potential mismatches shielded by a correct match
+    n_masked = _compute_n_masked(score_matrix_des_with_inf, matching_matrix_agg.correct)
 
     numeric_stats = {
         "n_matches_proposed": int(n_matches_proposed.item()),

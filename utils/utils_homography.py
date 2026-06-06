@@ -1,9 +1,6 @@
 """homography utils."""
 
 import math
-import sys
-
-sys.path.append("../")
 from collections.abc import Collection
 
 import numpy as np
@@ -302,7 +299,9 @@ def is_convex(xy: np.ndarray) -> bool:
         # compute two consecutive edges
         vector = np.array([xy[(i + 1) % N], xy[(i + 2) % N]]) - xy[i]
 
-        direction_new = np.cross(vector[0], vector[1])
+        # 2-D scalar cross product (z-component); np.cross on 2-D vectors is
+        # deprecated in NumPy 2.0.
+        direction_new = vector[0][0] * vector[1][1] - vector[0][1] * vector[1][0]
         # if direction of cross product of all adjacent edges are not same
         if direction_new * direction_old < 0:
             return False
@@ -407,6 +406,185 @@ def generate_homography_for_patch_augmentation(
     return H @ translation
 
 
+def _sample_shear(params: dict) -> tuple[float, float, bool]:
+    """Sample (x, y) shear. Returns (x_shear, y_shear, applied)."""
+    if apply_with_probability(params["shear_p"]) and (
+        params.get("shear_std", 0) > 0
+        or params.get("shear_delta", 0) > 0
+        or params.get("shear_x_delta", 0) > 0
+        or params.get("shear_y_delta", 0) > 0
+    ):
+        if "shear_std" in params:
+            x_shear = np.random.normal(0, params["shear_std"])
+            y_shear = np.random.normal(0, params["shear_std"])
+        else:
+            assert (
+                "shear_delta" in params
+                and "shear_x_delta" in params
+                and "shear_y_delta" in params
+                and "shear_anisotropic_ratio" in params
+            )
+            if np.random.random() < params["shear_anisotropic_ratio"]:
+                x_shear = (np.random.random() * 2 - 1) * params["shear_x_delta"]
+                y_shear = (np.random.random() * 2 - 1) * params["shear_y_delta"]
+            else:
+                x_shear = (np.random.random() * 2 - 1) * params["shear_delta"]
+                y_shear = (np.random.random() * 2 - 1) * params["shear_delta"]
+        return x_shear, y_shear, True
+    return 0.0, 0.0, False
+
+
+def _sample_perspective(
+    params: dict, patch_shape: tuple[int, int] | np.ndarray
+) -> tuple[float, float, bool]:
+    """Sample (x, y) perspective. Returns (x_persp, y_persp, applied)."""
+    if apply_with_probability(params["perspective_p"]) and (
+        params.get("perspective_std", 0) > 0
+        or params.get("perspective_delta", 0) > 0
+        or params.get("perspective_x_delta", 0) > 0
+        or params.get("perspective_y_delta", 0) > 0
+    ):
+        if "perspective_std" in params:
+            std = params["perspective_std"]
+            x_perspective = np.random.normal(0, std) / patch_shape[1]
+            y_perspective = np.random.normal(0, std) / patch_shape[0]
+        else:
+            assert (
+                "perspective_delta" in params
+                and "perspective_x_delta" in params
+                and "perspective_y_delta" in params
+                and "perspective_anisotropic_ratio" in params
+            )
+            if np.random.random() < params["perspective_anisotropic_ratio"]:
+                x_perspective = (
+                    (np.random.random() * 2 - 1)
+                    * params["perspective_x_delta"]
+                    / patch_shape[1]
+                )
+                y_perspective = (
+                    (np.random.random() * 2 - 1)
+                    * params["perspective_y_delta"]
+                    / patch_shape[0]
+                )
+            else:
+                x_perspective = (
+                    (np.random.random() * 2 - 1)
+                    * params["perspective_delta"]
+                    / patch_shape[1]
+                )
+                y_perspective = (
+                    (np.random.random() * 2 - 1)
+                    * params["perspective_delta"]
+                    / patch_shape[0]
+                )
+        return x_perspective, y_perspective, True
+    return 0.0, 0.0, False
+
+
+def _sample_rotation(params: dict) -> tuple[float, bool]:
+    """Sample a rotation angle in degrees. Returns (alpha_degrees, applied)."""
+    if apply_with_probability(params["angle_p"]) and (
+        params.get("angle_std", 0) > 0 or params.get("angle_delta", 0) > 0
+    ):
+        if "angle_std" in params:
+            alpha_degrees = np.random.normal(0, params["angle_std"])
+        else:
+            alpha_degrees = (np.random.random() * 2 - 1) * params["angle_delta"]
+        return alpha_degrees, True
+    return 0.0, False
+
+
+def _sample_scale(params: dict) -> tuple[float, float, bool]:
+    """Sample (x, y) scale. Returns (x_scale, y_scale, applied)."""
+    if apply_with_probability(params["scale_p"]) and (
+        params.get("scale_std", 0) > 0
+        or params.get("scale_delta", 0) > 0
+        or params.get("scale_x_delta", 0) > 0
+        or params.get("scale_y_delta", 0) > 0
+    ):
+        if "scale_std" in params:
+            x_scale = 1 + np.random.normal(0, params["scale_std"])
+            y_scale = 1 + np.random.normal(0, params["scale_std"])
+        else:
+            # get only smaller images (to be sure that the patch fits the image)
+            assert (
+                "scale_delta" in params
+                and "scale_x_delta" in params
+                and "scale_y_delta" in params
+                and "scale_anisotropic_ratio" in params
+            )
+            if np.random.random() < params["scale_anisotropic_ratio"]:
+                x_scale = 1 - (np.random.random() * params["scale_x_delta"])
+                y_scale = 1 - (np.random.random() * params["scale_y_delta"])
+            else:
+                x_scale = 1 - (np.random.random() * params["scale_delta"])
+                y_scale = 1 - (np.random.random() * params["scale_delta"])
+        return x_scale, y_scale, True
+    return 1.0, 1.0, False
+
+
+def _sample_translation(
+    params: dict, patch_shape: tuple[int, int] | np.ndarray
+) -> tuple[float, float, bool]:
+    """Sample (x, y) translation. Returns (x_transl, y_transl, applied)."""
+    if apply_with_probability(params["translation_p"]) and (
+        params.get("translation_std", 0) > 0 or params.get("translation_delta", 0) > 0
+    ):
+        if "translation_std" in params:
+            std = params["translation_std"]
+            x_translation = np.random.normal(0, std) * patch_shape[1]
+            y_translation = np.random.normal(0, std) * patch_shape[0]
+        else:
+            delta = params["translation_delta"]
+            x_translation = (np.random.random() * 2 - 1) * delta * patch_shape[1]
+            y_translation = (np.random.random() * 2 - 1) * delta * patch_shape[0]
+        return x_translation, y_translation, True
+    return 0.0, 0.0, False
+
+
+def _translation_only_homography(
+    patch_center: np.ndarray, patch_shape: tuple[int, int] | np.ndarray
+) -> tuple[np.ndarray, dict]:
+    """Fallback homography with only the centering translation."""
+    translation = (
+        patch_center[0] - patch_shape[1] // 2,
+        patch_center[1] - patch_shape[0] // 2,
+    )
+    return transl_mat_numpy(translation), {"translation": translation}
+
+
+def _patch_corners_valid(
+    homography: np.ndarray,
+    patch_shape: tuple[int, int] | np.ndarray,
+    source_img_shape: tuple[int, int] | np.ndarray,
+    allow_padding: bool,
+) -> bool:
+    """Check the backprojected patch corners are convex and (optionally) inside."""
+    points = np.array(
+        [
+            [0, 0],
+            [patch_shape[1], 0],
+            [patch_shape[1], patch_shape[0]],
+            [0, patch_shape[0]],
+        ]
+    )
+    points_backprojected = warp_points_numpy(points, homography)
+    if not is_convex(points_backprojected):
+        print("Warning: generated homography is not convex")
+        return False
+    if allow_padding:
+        return True
+    if points_in_image(points_backprojected, source_img_shape):
+        return True
+    print(
+        "Warning: one of the corners of the augmented patch is "
+        "outside the source image. "
+        "Increase the source image size and margins, "
+        "decrease the patch size or the augmentation parameters."
+    )
+    return False
+
+
 def sample_homography(
     patch_center: np.ndarray,
     patch_shape: tuple[int, int] | np.ndarray,
@@ -476,173 +654,37 @@ def sample_homography(
     H_params = {}
 
     for i in range(max_n_iterations):
-        if (
-            i == max_n_iterations - 1
-        ):  # if we reached the max number of iterations return just the translation
+        if i == max_n_iterations - 1:
+            # reached the max number of iterations: return just the translation
             print(
                 "Warning: we could not generate the homography, returning the "
                 "homography with just the translation"
             )
-            H = transl_mat_numpy(
-                (
-                    patch_center[0] - patch_shape[1] // 2,
-                    patch_center[1] - patch_shape[0] // 2,
-                )
-            )
-            H_params = {
-                "translation": (
-                    patch_center[0] - patch_shape[1] // 2,
-                    patch_center[1] - patch_shape[0] // 2,
-                )
-            }
-            break
+            return _translation_only_homography(patch_center, patch_shape)
 
-        # SHEAR
-        if apply_with_probability(params["shear_p"]) and (
-            params.get("shear_std", 0) > 0
-            or params.get("shear_delta", 0) > 0
-            or params.get("shear_x_delta", 0) > 0
-            or params.get("shear_y_delta", 0) > 0
-        ):
-            if "shear_std" in params:
-                x_shear = np.random.normal(0, params["shear_std"])
-                y_shear = np.random.normal(0, params["shear_std"])
-            else:
-                assert (
-                    "shear_delta" in params
-                    and "shear_x_delta" in params
-                    and "shear_y_delta" in params
-                    and "shear_anisotropic_ratio" in params
-                )
-                if np.random.random() < params["shear_anisotropic_ratio"]:
-                    x_shear = (np.random.random() * 2 - 1) * params["shear_x_delta"]
-                    y_shear = (np.random.random() * 2 - 1) * params["shear_y_delta"]
-                else:
-                    x_shear = (np.random.random() * 2 - 1) * params["shear_delta"]
-                    y_shear = (np.random.random() * 2 - 1) * params["shear_delta"]
+        x_shear, y_shear, shear_applied = _sample_shear(params)
+        if shear_applied:
             H_params["shear"] = (x_shear, y_shear)
-        else:
-            x_shear = 0.0
-            y_shear = 0.0
 
-        # PERSPECTIVE
-        if apply_with_probability(params["perspective_p"]) and (
-            params.get("perspective_std", 0) > 0
-            or params.get("perspective_delta", 0) > 0
-            or params.get("perspective_x_delta", 0) > 0
-            or params.get("perspective_y_delta", 0) > 0
-        ):
-            # image center projective deformation
-            if "perspective_std" in params:
-                x_perspective = (
-                    np.random.normal(0, params["perspective_std"]) / patch_shape[1]
-                )
-                y_perspective = (
-                    np.random.normal(0, params["perspective_std"]) / patch_shape[0]
-                )
-            else:
-                assert (
-                    "perspective_delta" in params
-                    and "perspective_x_delta" in params
-                    and "perspective_y_delta" in params
-                    and "perspective_anisotropic_ratio" in params
-                )
-                if np.random.random() < params["perspective_anisotropic_ratio"]:
-                    x_perspective = (
-                        (np.random.random() * 2 - 1)
-                        * params["perspective_x_delta"]
-                        / patch_shape[1]
-                    )
-                    y_perspective = (
-                        (np.random.random() * 2 - 1)
-                        * params["perspective_y_delta"]
-                        / patch_shape[0]
-                    )
-                else:
-                    x_perspective = (
-                        (np.random.random() * 2 - 1)
-                        * params["perspective_delta"]
-                        / patch_shape[1]
-                    )
-                    y_perspective = (
-                        (np.random.random() * 2 - 1)
-                        * params["perspective_delta"]
-                        / patch_shape[0]
-                    )
+        x_perspective, y_perspective, persp_applied = _sample_perspective(
+            params, patch_shape
+        )
+        if persp_applied:
             H_params["perspective"] = (x_perspective, y_perspective)
-        else:
-            x_perspective = 0.0
-            y_perspective = 0.0
 
-        # ROTATION
-        if apply_with_probability(params["angle_p"]) and (
-            params.get("angle_std", 0) > 0 or params.get("angle_delta", 0) > 0
-        ):
-            # image center rotation
-            if "angle_std" in params:
-                alpha_degrees = np.random.normal(0, params["angle_std"])
-            else:
-                alpha_degrees = (np.random.random() * 2 - 1) * params["angle_delta"]
+        alpha_degrees, rotation_applied = _sample_rotation(params)
+        if rotation_applied:
             H_params["rotation"] = alpha_degrees
-        else:
-            alpha_degrees = 0.0
 
-        # SCALE
-        if apply_with_probability(params["scale_p"]) and (
-            params.get("scale_std", 0) > 0
-            or params.get("scale_delta", 0) > 0
-            or params.get("scale_x_delta", 0) > 0
-            or params.get("scale_y_delta", 0) > 0
-        ):
-            if "scale_std" in params:
-                x_scale = 1 + np.random.normal(0, params["scale_std"])
-                y_scale = 1 + np.random.normal(0, params["scale_std"])
-            else:
-                # get only smaller images (to be sure that the patch fits the image)
-                assert (
-                    "scale_delta" in params
-                    and "scale_x_delta" in params
-                    and "scale_y_delta" in params
-                    and "scale_anisotropic_ratio" in params
-                )
-                if np.random.random() < params["scale_anisotropic_ratio"]:
-                    x_scale = 1 - (np.random.random() * params["scale_x_delta"])
-                    y_scale = 1 - (np.random.random() * params["scale_y_delta"])
-                else:
-                    x_scale = 1 - (np.random.random() * params["scale_delta"])
-                    y_scale = 1 - (np.random.random() * params["scale_delta"])
+        x_scale, y_scale, scale_applied = _sample_scale(params)
+        if scale_applied:
             H_params["scale"] = (x_scale, y_scale)
-        else:
-            x_scale = 1.0
-            y_scale = 1.0
 
-        # TRANSLATION
-        if apply_with_probability(params["translation_p"]) and (
-            params.get("translation_std", 0) > 0
-            or params.get("translation_delta", 0) > 0
-        ):
-            if "translation_std" in params:
-                x_translation = (
-                    np.random.normal(0, params["translation_std"]) * patch_shape[1]
-                )
-                y_translation = (
-                    np.random.normal(0, params["translation_std"]) * patch_shape[0]
-                )
-            else:
-                x_translation = (
-                    (np.random.random() * 2 - 1)
-                    * params["translation_delta"]
-                    * patch_shape[1]
-                )
-                y_translation = (
-                    (np.random.random() * 2 - 1)
-                    * params["translation_delta"]
-                    * patch_shape[0]
-                )
+        x_translation, y_translation, translation_applied = _sample_translation(
+            params, patch_shape
+        )
+        if translation_applied:
             H_params["translation"] = (x_translation, y_translation)
-        else:
-            x_translation = 0.0
-            y_translation = 0.0
 
         H = generate_homography_for_patch_augmentation(
             patch_shape,
@@ -658,36 +700,13 @@ def sample_homography(
             y_translation=y_translation,
         )
 
-        # backproject the four patch corners
-        points = np.array(
-            [
-                [0, 0],
-                [patch_shape[1], 0],
-                [patch_shape[1], patch_shape[0]],
-                [0, patch_shape[0]],
-            ]
-        )
-        points_backprojected = warp_points_numpy(points, H)
-        # check if the polygon is convex
-        if not is_convex(points_backprojected):
-            print("Warning: generated homography is not convex")
-            continue
+        if _patch_corners_valid(
+            H, patch_shape, source_img_shape, params["allow_results_with_padding"]
+        ):
+            return H, H_params
 
-        if params["allow_results_with_padding"]:
-            break
-        # check if all the points are inside the image
-        if points_in_image(points_backprojected, source_img_shape):
-            break
-        print(
-            "Warning: one of the corners of the augmented patch is "
-            "outside the source image. "
-            "Increase the source image size and margins, "
-            "decrease the patch size or the augmentation parameters."
-        )
-        continue
-
-    # noinspection PyUnboundLocalVariable
-    return H, H_params
+    # unreachable: the loop either returns a valid H or the translation fallback
+    return _translation_only_homography(patch_center, patch_shape)
 
 
 def my_warp_perspective(

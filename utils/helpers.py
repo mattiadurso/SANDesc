@@ -1,6 +1,7 @@
 """Setup helpers for training: dataloaders, model, optimizer, wrappers."""
 
 import logging
+import os
 import random
 import sys
 from pathlib import Path
@@ -41,9 +42,9 @@ def setup_paths() -> None:
     if libutils_path.exists() and str(libutils_path) not in sys.path:
         sys.path.insert(0, str(libutils_path))
 
-    # Add external repos
+    # Add external repos (PoseBench). Override with the POSEBENCH_PATH env var.
     external_repos = [
-        "/home/mattia/Desktop/Repos/posebench",
+        os.environ.get("POSEBENCH_PATH", "/home/mattia/Desktop/Repos/posebench"),
     ]
 
     for repo_path in external_repos:
@@ -250,12 +251,12 @@ def setup_wrappers(cfg: DictConfig) -> tuple:
     try:
         # this is imported from set up paths
         from wrappers_manager import wrappers_manager
-    except ImportError:
-        logging.warning(
+    except ImportError as e:
+        raise ImportError(
             "Could not import wrappers_manager. Install it from "
-            "github.com/mattiadurso/PoseBench"
-        )
-        exit()
+            "github.com/mattiadurso/PoseBench and set the POSEBENCH_PATH "
+            "environment variable to its location."
+        ) from e
 
     train_wrapper = wrappers_manager(cfg.training.train_wrapper, cfg.device)
 

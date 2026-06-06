@@ -15,19 +15,16 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm.auto import tqdm
 
+from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import rotate_image_and_camera_z_axis
 
-# Define primary and fallback dataset paths
-primary_path = Path("/home/mattia/Desktop/datasets/mydataset/data")  # local
-fallback_path = Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data")  # server
-
-# Select the first available dataset path
-if primary_path.exists():
-    DATASET_PATH = primary_path
-elif fallback_path.exists():
-    DATASET_PATH = fallback_path
-else:
-    exit("Dataset megadepth-disk not found")
+# Candidate dataset paths; override with the SANDESC_TERRASKY_PATH env var.
+DATASET_CANDIDATES = [
+    Path("/home/mattia/Desktop/datasets/mydataset/data"),  # local
+    # NOTE: server fallback below points at the Megadepth dir (pre-existing,
+    # likely wrong for TerraSky); override with SANDESC_TERRASKY_PATH.
+    Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data"),  # server
+]
 
 
 def rescale_and_pad(
@@ -162,9 +159,12 @@ class TerraSkyDataset(Dataset):
         self.transform = transforms.Compose(
             [t for t in transform.transforms if not isinstance(t, transforms.ToTensor)]
         )
-        scenes = sorted(p.name for p in DATASET_PATH.iterdir())
+        self.dataset_path = resolve_dataset_path(
+            "TerraSky3D", "SANDESC_TERRASKY_PATH", DATASET_CANDIDATES
+        )
+        scenes = sorted(p.name for p in self.dataset_path.iterdir())
 
-        with (DATASET_PATH.parent / "train_data.json").open() as f:
+        with (self.dataset_path.parent / "train_data.json").open() as f:
             self.scenes = json.load(f)
 
         self.flattened_pairs = []
@@ -178,7 +178,7 @@ class TerraSkyDataset(Dataset):
                     "bidirectionally_filtered_square.csv"
                 )
                 df = pd.read_csv(
-                    DATASET_PATH / scene / csv_name,
+                    self.dataset_path / scene / csv_name,
                     index_col=None,
                 )
                 # filter df by num_pixels > 3000 and th 10 > 0.5
@@ -265,7 +265,7 @@ class TerraSkyDataset(Dataset):
             # drawing a random scene
             current_scene_name = list(self.scenes.keys())[idx % len(self.scenes)]
             current_scene = self.scenes[current_scene_name]
-            base_path = DATASET_PATH / current_scene_name
+            base_path = self.dataset_path / current_scene_name
 
             # drawing a pair of images from the current scene
             pairs = current_scene["pairs"]

@@ -140,3 +140,4 @@ final_models/.DS_Store
 nb_test_TS3D.ipynb
 demo_dev.ipynb
 final_models/*
+assets/graz_clocktower/superpoint_kpts.pth

@@ -377,6 +377,99 @@ def depth_consistency_check(
     return mask_inconsistent_depth, mask_invalid_depth1, xyz1_proj
 
 
+def _project_view(
+    xy_src: Tensor,
+    depth_src: Tensor,
+    depth_dst: Tensor,
+    P_src: Tensor,
+    P_dst: Tensor,
+    K_src: Tensor,
+    K_dst: Tensor,
+    max_relative_depth_error: float,
+    mode: str,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Project source-view keypoints into the destination view.
+
+    Returns ``(xy_proj, mask_outside_dst, mask_invalid_depth_src,
+    mask_inconsistent_depth_src)``; ``xy_proj`` has NaNs where the projected
+    depth is inconsistent.
+    """
+    selected_depths, mask_invalid_depth = grid_sample_nan(
+        xy_src, depth_src, mode=mode
+    )  # Bxn, Bxn
+    # use the depth to define the 3D coordinates of points in the source ref
+    xyz = unproject_to_3D(xy_src, K_src, selected_depths)  # Bxnx3
+    # change the ref system of the 3d point to the destination camera
+    xyz_proj = change_reference_3D_points(xyz, P_src, P_dst)  # Bxnx3
+    # project the point in the destination image
+    xy_proj, mask_outside_dst = project_to_2D(
+        xyz_proj, K_dst, depth_dst.shape[1:]
+    )  # Bxnx2, Bxnx2
+    # check for depth consistency and set xy_proj to nan if inconsistent
+    mask_inconsistent_depth = depth_consistency_check(
+        xy_proj,
+        selected_depths,
+        depth_dst,
+        P_src,
+        P_dst,
+        K_dst,
+        max_relative_depth_error=max_relative_depth_error,
+        mode=mode,
+    )[0]  # Bxn
+    xy_proj[mask_inconsistent_depth] = float("nan")
+    return xy_proj, mask_outside_dst, mask_invalid_depth, mask_inconsistent_depth
+
+
+def _compute_unmatched_bins(
+    mask_outside0: Tensor,
+    mask_outside1: Tensor,
+    mask_invalid_depth0: Tensor,
+    mask_invalid_depth1: Tensor,
+    mask_inconsistent_depth0: Tensor,
+    mask_inconsistent_depth1: Tensor,
+    mask_inconsistent_depth: Tensor,
+    in_radius_big0: Tensor,
+    in_radius_big1: Tensor,
+    single_nn0: Tensor,
+    single_nn1: Tensor,
+) -> tuple[Tensor, Tensor]:
+    """Compute the per-keypoint "unmatched" bins for both views.
+
+    A keypoint is unmatched if it has valid, consistent depth but does not have
+    a valid match in the other image (see the parent docstring for the cases).
+    Returns ``(bin0, bin1)``.
+    """
+    # point has depth and projects out of the other image
+    bin0 = mask_outside1
+    bin1 = mask_outside0
+
+    # point has consistent depth, projects inside the other image, but there is
+    # no point in the other image within the big threshold of the projection
+    bin0 += ~mask_invalid_depth0 * ~mask_inconsistent_depth0 * ~(in_radius_big0.any(2))
+    bin1 += ~mask_invalid_depth1 * ~mask_inconsistent_depth1 * ~(in_radius_big1.any(1))
+
+    # only one neighbour within the threshold; it has consistent depth and
+    # projects out of the first image
+    bin0 += (single_nn0 * ~mask_inconsistent_depth * mask_outside0[:, None, :]).any(2)
+    bin1 += (single_nn1 * ~mask_inconsistent_depth * mask_outside1[:, :, None]).any(1)
+
+    # only one neighbour within the threshold; it has depth and projects inside
+    # the first image, but not within the threshold of the original point
+    bin0 += (
+        single_nn0
+        * ~in_radius_big1
+        * ~mask_invalid_depth1[:, None, :]
+        * ~mask_inconsistent_depth
+    ).any(2)
+    bin1 += (
+        single_nn1
+        * ~in_radius_big0
+        * ~mask_invalid_depth0[:, :, None]
+        * ~mask_inconsistent_depth
+    ).any(1)
+    return bin0, bin1
+
+
 def compute_GT_matches_matrix_3D(
     xy0: Tensor,
     xy1: Tensor,
@@ -462,57 +555,19 @@ def compute_GT_matches_matrix_3D(
     B, n0, n1 = xy0.shape[0], xy0.shape[1], xy1.shape[1]
 
     # ==================== img0 -> img1 ============================
-    # interpolate depths
-    selected_depths0, mask_invalid_depth0 = grid_sample_nan(
-        xy0, depthmap0, mode=mode
-    )  # Bxn, Bxn
-    # use the depth to define the 3D coordinates of points in camera0 ref system
-    xyz0 = unproject_to_3D(xy0, K0, selected_depths0)  # Bxnx3
-    # change the ref system of the 3d point to camera1
-    xyz0_proj = change_reference_3D_points(xyz0, P0, P1)  # Bxnx3
-    # project the point in the destination image. The index 1 of mask_outside1
-    # refers to the fact that this is computed in img1 space
-    xy0_proj, mask_outside1 = project_to_2D(
-        xyz0_proj, K1, depthmap1.shape[1:]
-    )  # Bxnx2, Bxnx2
-    # check for depth consistency and set xy0_proj to nan if inconsistent
-    mask_inconsistent_depth0 = depth_consistency_check(
-        xy0_proj,
-        selected_depths0,
-        depthmap1,
-        P0,
-        P1,
-        K1,
-        max_relative_depth_error=max_relative_depth_error,
-        mode=mode,
-    )[0]  # Bxn0
-    xy0_proj[mask_inconsistent_depth0] = float("nan")
+    # mask_outside1 is named for img1 space (where xy0 is projected)
+    xy0_proj, mask_outside1, mask_invalid_depth0, mask_inconsistent_depth0 = (
+        _project_view(
+            xy0, depthmap0, depthmap1, P0, P1, K0, K1, max_relative_depth_error, mode
+        )
+    )
     # ==================== img1 -> img0 ============================
-    # interpolate depths
-    selected_depths1, mask_invalid_depth1 = grid_sample_nan(
-        xy1, depthmap1, mode=mode
-    )  # Bxn, Bxn
-    # use the depth to define the 3D coordinates of points in camera1 ref system
-    xyz1 = unproject_to_3D(xy1, K1, selected_depths1)  # Bxnx3
-    # change the ref system of the 3d point to camera0
-    xyz1_proj = change_reference_3D_points(xyz1, P1, P0)  # Bxnx3
-    # project the point in the destination image. The index 0 of mask_outside0
-    # refers to the fact that this is computed in img0 space
-    xy1_proj, mask_outside0 = project_to_2D(
-        xyz1_proj, K0, depthmap0.shape[1:]
-    )  # Bxnx2, Bxnx2
-    # check for depth consistency and set xy1_proj to nan if inconsistent
-    mask_inconsistent_depth1 = depth_consistency_check(
-        xy1_proj,
-        selected_depths1,
-        depthmap0,
-        P1,
-        P0,
-        K0,
-        max_relative_depth_error=max_relative_depth_error,
-        mode=mode,
-    )[0]  # Bxn1
-    xy1_proj[mask_inconsistent_depth1] = float("nan")
+    # mask_outside0 is named for img0 space (where xy1 is projected)
+    xy1_proj, mask_outside0, mask_invalid_depth1, mask_inconsistent_depth1 = (
+        _project_view(
+            xy1, depthmap1, depthmap0, P1, P0, K1, K0, max_relative_depth_error, mode
+        )
+    )
 
     # compute the inconsistent depth overall map
     mask_inconsistent_depth = (
@@ -566,36 +621,19 @@ def compute_GT_matches_matrix_3D(
     # This is wrong because finds multiple matches for the same
     # This is too much restrictive
 
-    # point have depth and project out of the other image image
-    bin0 = mask_outside1
-    bin1 = mask_outside0
-
-    # point have depth and the depth is consistent, project inside the other image.
-    # There are no point in the other image within 5 px from the projected one
-    bin0 += ~mask_invalid_depth0 * ~mask_inconsistent_depth0 * ~(in_radius_big0.any(2))
-    bin1 += ~mask_invalid_depth1 * ~mask_inconsistent_depth1 * ~(in_radius_big1.any(1))
-
-    # point has consistent depth and projects inside the other image. There is
-    # only one point in the other image within 5 px. It has consistent depth
-    # and projects out of the first image
-    bin0 += (single_nn0 * ~mask_inconsistent_depth * mask_outside0[:, None, :]).any(2)
-    bin1 += (single_nn1 * ~mask_inconsistent_depth * mask_outside1[:, :, None]).any(1)
-
-    # point has consistent depth and projects inside the other image. There is
-    # only one point in the other image within 5 px. It has depth and projects
-    # inside the first image, but not within 5px from the original point
-    bin0 += (
-        single_nn0
-        * ~in_radius_big1
-        * ~mask_invalid_depth1[:, None, :]
-        * ~mask_inconsistent_depth
-    ).any(2)
-    bin1 += (
-        single_nn1
-        * ~in_radius_big0
-        * ~mask_invalid_depth0[:, :, None]
-        * ~mask_inconsistent_depth
-    ).any(1)
+    bin0, bin1 = _compute_unmatched_bins(
+        mask_outside0,
+        mask_outside1,
+        mask_invalid_depth0,
+        mask_invalid_depth1,
+        mask_inconsistent_depth0,
+        mask_inconsistent_depth1,
+        mask_inconsistent_depth,
+        in_radius_big0,
+        in_radius_big1,
+        single_nn0,
+        single_nn1,
+    )
 
     # building the matching matrix composing gt_matches and bins
     matching_matrix = torch.zeros(B, n0 + 1, n1 + 1, device=device, dtype=torch.bool)
@@ -626,9 +664,10 @@ def scale_and_crop(
     assert img.ndim in {2, 3}, f"img.ndim {img.ndim} must be 2 or 3"
     assert K0.ndim == 2, f"K0.ndim {K0.ndim} must be 2"
     assert K0.shape == (3, 3), f"K0.shape {K0.shape} must be (3, 3)"
-    assert img.shape[:2] == depth.shape, (
-        f"img.shape[:2] {img.shape[:2]} must be equal to depth.shape {depth.shape}"
-    )
+    if depth is not None:
+        assert img.shape[:2] == depth.shape, (
+            f"img.shape[:2] {img.shape[:2]} must be equal to depth.shape {depth.shape}"
+        )
 
     H, W = img.shape[:2]
     H_out, W_out = output_shape
