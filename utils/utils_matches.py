@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
+
+log = logging.getLogger(__name__)
 
 # from libutils.utils_descriptors import (
 #     get_margin_and_ratio_from_scores_and_mnn_matrix)
@@ -798,7 +801,7 @@ def match_descriptors_mnn_scores_ratio_test(
             score_matrix = des0[b] @ des1[b].permute(1, 0)  # n0 x n1
             # set the nan in the score_matrix to -1
             if score_matrix.isnan().any():
-                print("WARNING: score matrix have nan values, setting those to -1")
+                log.warning("score matrix has nan values, setting those to -1")
                 score_matrix[score_matrix.isnan()] = -1
             matches_mat = mutual_nearest_neighbors_from_score_matrix(
                 score_matrix[None], min_score=min_score, ratio_test=ratio_test

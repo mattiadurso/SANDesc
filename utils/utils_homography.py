@@ -1,5 +1,6 @@
 """homography utils."""
 
+import logging
 import math
 from collections.abc import Collection
 
@@ -15,6 +16,8 @@ from utils.utils_2D import (
     mutual_nearest_neighbors_from_dist_matrices,
     rotatedRectWithMaxArea,
 )
+
+log = logging.getLogger(__name__)
 
 
 def apply_with_probability(probability: float) -> bool:
@@ -570,17 +573,16 @@ def _patch_corners_valid(
     )
     points_backprojected = warp_points_numpy(points, homography)
     if not is_convex(points_backprojected):
-        print("Warning: generated homography is not convex")
+        log.warning("generated homography is not convex")
         return False
     if allow_padding:
         return True
     if points_in_image(points_backprojected, source_img_shape):
         return True
-    print(
-        "Warning: one of the corners of the augmented patch is "
-        "outside the source image. "
-        "Increase the source image size and margins, "
-        "decrease the patch size or the augmentation parameters."
+    log.warning(
+        "one of the corners of the augmented patch is outside the source "
+        "image. Increase the source image size and margins, decrease the "
+        "patch size or the augmentation parameters."
     )
     return False
 
@@ -656,9 +658,9 @@ def sample_homography(
     for i in range(max_n_iterations):
         if i == max_n_iterations - 1:
             # reached the max number of iterations: return just the translation
-            print(
-                "Warning: we could not generate the homography, returning the "
-                "homography with just the translation"
+            log.warning(
+                "could not generate the homography, returning the homography "
+                "with just the translation"
             )
             return _translation_only_homography(patch_center, patch_shape)
 
