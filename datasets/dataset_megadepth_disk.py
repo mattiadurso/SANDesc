@@ -1,6 +1,10 @@
-from pathlib import Path
+"""MegaDepth/DISK dataset loader for descriptor training."""
 
 import json
+import logging
+from collections.abc import Callable
+from pathlib import Path
+
 import h5py
 import imageio.v3 as io
 import numpy as np
@@ -10,25 +14,23 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import P_from_R_t, rotate_image_and_camera_z_axis
 
-# Define primary and fallback dataset paths
-primary_path = Path("/home/mattia/HDD_Fast/Megadepth/data")  # local
-fallback_path = Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data")  # server
+log = logging.getLogger(__name__)
 
-# Select the first available dataset path
-if primary_path.exists():
-    DATASET_PATH = primary_path
-elif fallback_path.exists():
-    DATASET_PATH = fallback_path
-else:
-    exit("Dataset megadepth-disk not found")
+# Candidate dataset paths; override with the SANDESC_MEGADEPTH_PATH env var.
+DATASET_CANDIDATES = [
+    Path("/home/mattia/HDD_Fast/Megadepth/data"),  # local
+    Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data"),  # server
+]
 
 
 def rescale_and_pad(
     img: Tensor, depth: Tensor, K: Tensor, img_size: int
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Scale the longest side to fit the image, and pad the other
+    """Scale the longest side to fit the image, and pad the other.
+
     Args:
         img: the input image tensor
             C,H,W
@@ -36,7 +38,7 @@ def rescale_and_pad(
             H,W
         K: the camera intrinsics matrix
             3,3
-        img_size: the output image size
+        img_size: the output image size.
 
     Returns:
         img: the rescaled and padded image
@@ -45,6 +47,7 @@ def rescale_and_pad(
             H,W
         K: the adapted intrinsics matrix
             3,3
+
     """
     H, W = img.shape[-2:]
     scale_factor = min(img_size / H, img_size / W)
@@ -71,7 +74,8 @@ def rescale_and_pad(
 def rescale_and_crop(
     img: Tensor, depth: Tensor, K: Tensor, img_size: int
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Scale such that the shortest side fit the image, and crop the other
+    """Scale such that the shortest side fits the image, and crop the other.
+
     Args:
         img: the input image tensor
             C,H,W
@@ -79,7 +83,7 @@ def rescale_and_crop(
             H,W
         K: the camera intrinsics matrix
             3,3
-        img_size: the output image size
+        img_size: the output image size.
 
     Returns:
         img: the rescaled and cropped image
@@ -88,6 +92,7 @@ def rescale_and_crop(
             H,W
         K: the adapted intrinsics matrix
             3,3
+
     """
     H, W = img.shape[-2:]
     scale_factor = max(img_size / H, img_size / W)
@@ -111,21 +116,28 @@ def rescale_and_crop(
 
 
 class MegadepthDiskDataset(Dataset):
+    """MegaDepth dataset using the DISK triplet split for training."""
+
     def __init__(
         self,
         img_size: int = 512,
         rescale_mode: str = "crop",
-        random_rotation_degrees_fn: callable = None,
-        transform: transforms.Compose = transforms.Compose([]),
+        random_rotation_degrees_fn: Callable | None = None,
+        transform: transforms.Compose | None = None,
         verbose: bool = False,
-    ):
-        """
+    ) -> None:
+        """Build the dataset.
+
         Args:
-            img_size: the output image size
-            rescale_mode: how to rescale the images, either crop or pad
-            random_rotation_degrees_fn: a function that returns a random rotation angle in degrees
-            transform: the transformation to apply to the images
+            img_size: the output image size.
+            rescale_mode: how to rescale the images, either crop or pad.
+            random_rotation_degrees_fn: a function returning a random rotation
+                angle in degrees.
+            transform: the transformation to apply to the images.
+            verbose: whether to print messages when skipping invalid pairs.
         """
+        if transform is None:
+            transform = transforms.Compose([])
         assert rescale_mode in [
             "crop",
             "pad",
@@ -138,11 +150,15 @@ class MegadepthDiskDataset(Dataset):
         self.transform = transforms.Compose(
             [t for t in transform.transforms if not isinstance(t, transforms.ToTensor)]
         )
-        scenes = json.load(open(DATASET_PATH / "dataset.json"))
+        self.dataset_path = resolve_dataset_path(
+            "megadepth-disk", "SANDESC_MEGADEPTH_PATH", DATASET_CANDIDATES
+        )
+        with (self.dataset_path / "dataset.json").open() as f:
+            scenes = json.load(f)
         self.scenes = {k: scenes[k] for k in sorted(scenes.keys())}
 
-    def reset(self):
-        """reset the dataloader"""
+    def reset(self) -> None:
+        """Reset the dataloader."""
         self.__init__(
             img_size=self.img_size,
             rescale_mode=self.rescale_mode,
@@ -150,23 +166,29 @@ class MegadepthDiskDataset(Dataset):
             transform=self.transform,
         )
 
-    def __len__(self):
-        #  here we should have 10000, but we keep some margin because we might have some invalid images
+    def __len__(self) -> int:
+        """Return the dataset length (with margin for invalid images)."""
+        #  here we should have 10000, but we keep some margin because we might
+        #  have some invalid images
         return len(self.scenes) * 9000
 
     def __getitem__(self, idx: int) -> dict:
-        """get the pair of images
+        """Get the pair of images.
+
         Args:
-            idx: the index of the pair
+            idx: the index of the pair.
 
         Returns:
-            output: a dictionary containing the pair of images, the depth maps, the camera intrinsics and extrinsics
+            A dictionary with the pair of images, the depth maps, and the
+            camera intrinsics and extrinsics.
         """
-
         while True:
             current_scene_name = list(self.scenes.keys())[idx % len(self.scenes)]
             current_scene = self.scenes[current_scene_name]
-            base_path = DATASET_PATH / "scenes" / current_scene_name
+            base_path = self.dataset_path / "scenes" / current_scene_name
+            # Sample a triplet without replacement: pop() drains this worker's
+            # in-memory copy of the scene's tuples over the epoch. reset()
+            # reloads the full set from disk.
             triplets = current_scene["tuples"]
             triplet_idx = np.random.randint(len(triplets))
 
@@ -174,12 +196,14 @@ class MegadepthDiskDataset(Dataset):
 
             img0, depth0, K0, P0 = self.load_data(base_path, current_scene, idx0)
             img1, depth1, K1, P1 = self.load_data(base_path, current_scene, idx1)
-            # img2, depth2, K2, P2 = self.load_data(base_path, current_scene, idx2)
 
-            if img0 is None or img1 is None:  # or img2 is None:
+            if img0 is None or img1 is None:
                 if self.verbose:
-                    print(
-                        f"Skipping invalid pair {idx0}, {idx1} in scene {current_scene_name}"
+                    log.debug(
+                        "Skipping invalid pair %s, %s in scene %s",
+                        idx0,
+                        idx1,
+                        current_scene_name,
                     )
                 continue
 
@@ -188,67 +212,68 @@ class MegadepthDiskDataset(Dataset):
                 img1, P1, K1, depth1 = rotate_image_and_camera_z_axis(
                     angle1, img1, P1, K1, depth1
                 )
-                # angle2 = self.random_rotation_degrees_fn()
-                # img2, P2, K2, depth2 = rotate_image_and_camera_z_axis(angle2, img2, P2, K2, depth2)
 
             if self.rescale_mode == "pad":
                 #  DISK paper: longest edge to 768 and zero pad the rest, bilinear
                 img0, depth0, K0 = rescale_and_pad(img0, depth0, K0, self.img_size)
                 img1, depth1, K1 = rescale_and_pad(img1, depth1, K1, self.img_size)
-                # img2, depth2, K2 = rescale_and_pad(img2, depth2, K2, self.img_size)
             else:
                 #  ours: shortest edge to dim and crop the rest, nearest
                 img0, depth0, K0 = rescale_and_crop(img0, depth0, K0, self.img_size)
                 img1, depth1, K1 = rescale_and_crop(img1, depth1, K1, self.img_size)
-                # img2, depth2, K2 = rescale_and_crop(img2, depth2, K2, self.img_size)
 
             depth0[depth0 == 0.0] = float("nan")
             depth1[depth1 == 0.0] = float("nan")
-            # depth2[depth2 == 0.0] = float('nan')
 
-            output = {
-                # "scene": current_scene_name,
+            return {
                 "img0": self.transform(img0),
                 "img1": self.transform(img1),
-                # 'img2': self.transform(img2),
                 "depth0": depth0,
                 "depth1": depth1,
-                # 'depth2': depth2,
                 "K0": K0,
                 "K1": K1,
-                # 'K2': K2,
                 "P0": P0,
                 "P1": P1,
-                # 'P2': P2,
             }
-            return output
 
-    def load_data(self, base_path, current_scene, idx: int):
-        """load the pair of images
+    def load_data(
+        self, base_path: Path, current_scene: dict, idx: int
+    ) -> tuple[Tensor | None, Tensor | None, Tensor | None, Tensor | None]:
+        """Load a single image with its depth map, intrinsics and pose.
+
         Args:
-            idx: the index of the pair
+            base_path: path to the current scene directory.
+            current_scene: the scene metadata dictionary.
+            idx: the index of the image within the scene.
 
         Returns:
-            output: a dictionary containing the pair of images, the depth maps, the camera intrinsics and extrinsics
+            The image, depth map, intrinsics K and pose P (or None on error).
         """
         img_path = base_path / "images" / current_scene["images"][idx]
         depth_path = base_path / "depth_maps" / f"{img_path.stem}.h5"
         calib_path = base_path / "calibration" / f"calibration_{img_path.name}.h5"
 
-        img0 = torch.tensor(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
-        depth0 = torch.tensor(h5py.File(depth_path, "r")["depth"][()])
-        calib_h5 = h5py.File(calib_path, "r")
-        K, R, t = (
-            torch.tensor(calib_h5["K"][()]),
-            torch.tensor(calib_h5["R"][()]),
-            torch.tensor(calib_h5["T"][()]),
-        )
+        try:
+            img0 = torch.tensor(io.imread(img_path) / 255.0).permute(2, 0, 1).float()
+            depth0 = torch.tensor(h5py.File(depth_path, "r")["depth"][()])
+            calib_h5 = h5py.File(calib_path, "r")
+            K, R, t = (
+                torch.tensor(calib_h5["K"][()]),
+                torch.tensor(calib_h5["R"][()]),
+                torch.tensor(calib_h5["T"][()]),
+            )
+        except (OSError, KeyError, ValueError) as e:
+            if self.verbose:
+                log.debug("Skipping %s: %s", img_path.name, e)
+            return None, None, None, None
+
         P = P_from_R_t(R[None], t[None])[0]
 
         if (2 * K[0, 2]).round().int() != img0.shape[-1] or (
             2 * K[1, 2]
         ).round().int() != img0.shape[-2]:
-            print("img0 center is not centered with the intrinsics, skipping this pair")
+            if self.verbose:
+                log.debug("%s center is not centered with K, skipping", img_path.name)
             return None, None, None, None
 
         return img0, depth0, K, P

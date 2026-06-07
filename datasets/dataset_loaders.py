@@ -1,26 +1,25 @@
-from typing import Tuple, Dict, Callable, Union
+"""Dataset factory: builds train/val dataloaders and GT-match functions."""
+
+import sys
+from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 import torch
+import torchvision.transforms.v2 as v2
 from torch import Tensor
-
 from torch.utils.data import DataLoader
 from torchvision import transforms
-import torchvision.transforms.v2 as v2
-
-import sys
-from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-# Local imports
-from datasets.dataset_imb import ImageMatchingBenchmark as IMBDataset  # Use alias
-from datasets.dataset_megadepth_disk import MegadepthDiskDataset
-from datasets.dataset_terrasky import TerraSkyDataset
-
-from utils.utils_3D import compute_GT_matches_matrix_3D
+# Local imports (after sys.path setup above, hence the E402 suppressions).
+from datasets.dataset_imb import ImageMatchingBenchmark as IMBDataset  # noqa: E402
+from datasets.dataset_megadepth_disk import MegadepthDiskDataset  # noqa: E402
+from datasets.dataset_terrasky import TerraSkyDataset  # noqa: E402
+from utils.utils_3D import compute_GT_matches_matrix_3D  # noqa: E402
 
 transform_from_normalized_rgb_to_grayscale = transforms.Compose(
     [
@@ -35,12 +34,11 @@ transform_from_normalized_rgb_to_grayscale = transforms.Compose(
 
 
 def compute_GT_matching_matrix_3D(
-    data: Dict[str, Tensor],
+    data: dict[str, Tensor],
     return_distances_and_projected: bool = False,
     allow_multiple_matches: bool = False,
-) -> Union[Tuple[Tensor, Tensor, Tensor, Tensor, Tensor], Tensor]:
-    """wrapper for the function compute_GT_matches_matrix_3D"""
-
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor] | Tensor:
+    """Wrapper for the function compute_GT_matches_matrix_3D."""
     if return_distances_and_projected:
         GT_matrix, xy0_proj, xy1_proj, dist0, dist1 = compute_GT_matches_matrix_3D(
             data["kpts0"],
@@ -60,7 +58,7 @@ def compute_GT_matching_matrix_3D(
         )
         return GT_matrix, xy0_proj, xy1_proj, dist0, dist1
 
-    GT_matrix = compute_GT_matches_matrix_3D(
+    return compute_GT_matches_matrix_3D(
         data["kpts0"],
         data["kpts1"],
         data["depth0"],
@@ -76,7 +74,6 @@ def compute_GT_matching_matrix_3D(
         return_distances_and_projected=False,
         allow_multiple_matches=allow_multiple_matches,
     )
-    return GT_matrix
 
 
 def get_dataloaders(
@@ -84,28 +81,33 @@ def get_dataloaders(
     batch_size: int,
     img_channels: int,
     num_workers: int = 0,
-    config_override: Dict = None,
+    config_override: dict | None = None,
     augment: bool = False,
     img_size: int = 512,
-) -> Tuple[DataLoader, DataLoader, Callable, Dict[str, float]]:
-    """Get the dataloaders for the specified mode
+) -> tuple[DataLoader, DataLoader, Callable, dict[str, float]]:
+    """Get the dataloaders for the specified mode.
 
     Args:
-        mode: which dataset to load
-        batch_size: the batch size
-        img_channels: the number of channels of the images
-        num_workers: the number of workers for the dataloaders
-        config_override: the configuration override
-    Returns:
-        the training and evaluation dataloaders, the function to compute the GT matching matrix and the configuration of the dataset
-    """
+        mode: which dataset to load.
+        batch_size: the batch size.
+        img_channels: the number of channels of the images.
+        num_workers: the number of workers for the dataloaders.
+        config_override: the configuration override.
+        augment: whether to apply photometric/noise augmentations.
+        img_size: the output image size.
 
+    Returns:
+        The training and evaluation dataloaders, the function to compute the
+        GT matching matrix, and the configuration of the dataset.
+    """
     config_override = {} if config_override is None else config_override
     if img_channels == 1:
         img_norm = [transforms.Grayscale(), transforms.Normalize(mean=0.5, std=0.5)]
     elif img_channels == 3:
         img_norm = [
-            # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # let's stay in the 0-1 range to avoid problem in plots
+            # Stay in the 0-1 range to avoid problems in plots, so no
+            # transforms.Normalize(mean=[0.485, 0.456, 0.406],
+            #                       std=[0.229, 0.224, 0.225]) here.
         ]
     else:
         raise ValueError("img_channels must be 1 or 3")
@@ -144,9 +146,7 @@ def get_dataloaders(
         dataset_validation = IMBDataset(
             config_imb["covisibility_weights"],
             scenes=config_imb["scenes"],
-            # scenes=['reichstag', 'sacre_coeur', 'st_peters_square'],
             img_shape=(config_imb["img_size"][1], config_imb["img_size"][0]),
-            # img_shape=None,
             transform=transform_imb,
         )
         config_dataset = config_imb
@@ -188,7 +188,6 @@ def get_dataloaders(
         config_disk = {
             "img_size": img_size,  # x,y
             "rescale_mode": "crop",
-            # 'rescale_mode': 'pad',
         }
         if config_override is not None:
             config_disk = {**config_disk, **config_override}
@@ -219,7 +218,8 @@ def get_dataloaders(
     else:
         raise ValueError("dataset mode not recognized")
 
-    #  set to each worker a different seed, but in a way that every time the code is run the seed is the same
+    #  set to each worker a different seed, but in a way that every time the
+    #  code is run the seed is the same
     dataloader_train = DataLoader(
         dataset_training,
         batch_size=batch_size,

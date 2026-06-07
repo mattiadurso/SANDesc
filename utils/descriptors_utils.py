@@ -1,28 +1,43 @@
-from typing import Tuple, Callable
+"""Utilities for extracting and sampling dense descriptors."""
 
 import gc
+from collections.abc import Callable
+from copy import deepcopy
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn, Tensor
+import wandb
+from torch import Tensor, nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from copy import deepcopy
-import matplotlib.pyplot as plt
 
-import wandb
 from utils.descriptor_stats import compute_stats
-from utils.utils_logging import log_match_plot
 from utils.helpers import seed_management
+from utils.utils_logging import log_match_plot
 
 
 def extract_keypoints(
     img0: Tensor,
     img1: Tensor,
-    detector_wrapper,
+    detector_wrapper: Any,  # noqa: ANN401 - external PoseBench detector wrapper
     max_n_keypoints: int,
     compute_stats_orig: bool = False,
-) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Run the detector on a batch and pad keypoints to a fixed size.
+
+    Args:
+        img0: first images, B,C,H,W.
+        img1: second images, B,C,H,W.
+        detector_wrapper: keypoint detector wrapper exposing ``extract``.
+        max_n_keypoints: maximum number of keypoints to keep per image.
+        compute_stats_orig: whether to also return the detector's descriptors.
+
+    Returns:
+        Padded keypoints, scores, scales and (optionally) original descriptors
+        for both images.
+    """
     B, C, H, W = img0.shape
     device = img0.device
 
@@ -30,7 +45,6 @@ def extract_keypoints(
     nkpts1_min = max_n_keypoints
 
     const = float("nan")
-    # const = 1.0
 
     kpts0 = const * torch.zeros((B, max_n_keypoints, 2), device=device)  # B,n_kpts,2
     kpts1 = const * torch.zeros((B, max_n_keypoints, 2), device=device)  # B,n_kpts,2
@@ -92,7 +106,7 @@ def extract_keypoints(
 
 @torch.no_grad()
 def evaluate(
-    detector_wrapper,
+    detector_wrapper: Any,  # noqa: ANN401 - external PoseBench detector wrapper
     network: nn.Module,
     valid_dataloader: DataLoader,
     compute_GT_matching_matrix_fn: Callable,
@@ -107,9 +121,18 @@ def evaluate(
     ratio_test: float = 1.0,
     max_epipolar_error: float = 1.0,
     return_stats: bool = False,
-    log_pca_feature_space=False,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    log_pca_feature_space: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame | None] | None:
+    """Evaluate the descriptor network on a validation dataloader.
 
+    Replaces the detector descriptors with the network ones (unless
+    ``use_wrapper_descriptor``), computes matching statistics, optionally
+    estimates relative pose AUC, and logs match plots to wandb.
+
+    Returns:
+        The per-iteration stats and pose-error dataframes when
+        ``return_stats`` is True, otherwise None (stats are logged to wandb).
+    """
     seed_stored = seed_management("store_and_reset")
 
     if use_wrapper_descriptor is False:
@@ -123,7 +146,7 @@ def evaluate(
     stats_all = []
     pose_error = []
     for i, data in tqdm(
-        zip(range(n_iterations), valid_dataloader),
+        zip(range(n_iterations), valid_dataloader, strict=False),
         position=1,
         desc="Evaluating",
         total=n_iterations,
@@ -169,11 +192,12 @@ def evaluate(
         score_matrix = des0 @ des1.permute(
             0, 2, 1
         )  # 1,n_kpts0,n_kpts1 | Cosine Similarity matrix in [-1,+1]
-        # < ==========================================================================================================
+        # < ----------------------------------------------------------------
         if compute_pose_stats:
             # Pose estimation
+            from mylib import geometry, metrics
+
             from utils.utils_matches import MNN
-            from mylib import metrics, geometry
 
             # MNN matching
             matcher = MNN(min_score=0.5, ratio_test=ratio_test, device=device)
@@ -209,7 +233,7 @@ def evaluate(
             err = metrics.evaluate_R_t(dR_gt[0], dt_gt, dR, dt[None])
 
             pose_error.append(err)
-        # < ============================================================================================================
+        # < ----------------------------------------------------------------
 
         # compute GT the matches
         matches_matrix_GT_with_bins = compute_GT_matching_matrix_fn(
@@ -290,9 +314,9 @@ def evaluate(
             matches_matrix_GT_with_bins,
             img0,
             img1,
-            kpts0_matched,
-            kpts1_matched,
         )
+        if compute_pose_stats:
+            del kpts0_matched, kpts1_matched
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -326,47 +350,34 @@ def evaluate(
         stats_mean[f"{tag}pose_auc_max@3"] = auc_max[1]
         stats_mean[f"{tag}pose_auc_max@5"] = auc_max[2]
         stats_mean[f"{tag}pose_auc_max@10"] = auc_max[3]
-        # stats_mean[f'{tag}pose_auc_R@1'] = auc_R[0]
-        # stats_mean[f'{tag}pose_auc_R@3'] = auc_R[1]
-        # stats_mean[f'{tag}pose_auc_R@5'] = auc_R[2]
-        # stats_mean[f'{tag}pose_auc_R@10'] = auc_R[3]
-        # stats_mean[f'{tag}pose_auc_t@1'] = auc_t[0]
-        # stats_mean[f'{tag}pose_auc_t@3'] = auc_t[1]
-        # stats_mean[f'{tag}pose_auc_t@5'] = auc_t[2]
-        # stats_mean[f'{tag}pose_auc_t@10'] = auc_t[3]
 
     if return_stats:
         return stats_df, pose_error_df if compute_pose_stats else None
-    else:
-        if wandb.run is not None:
-            wandb.log(stats_mean, step=current_interation)
+    if wandb.run is not None:
+        wandb.log(stats_mean, step=current_interation)
 
-        # if use_wrapper_descriptor is False:
-        #     network.requires_grad_(True)
-        #     network.train()
-        #     detector_wrapper.custom_descriptors = None
-
-        seed_management("restore", seed_stored)
+    seed_management("restore", seed_stored)
 
     del (
         stats_df,
         stats_mean_df,
         stats_mean,
-        pose_error_df,
         pose_error,
-        auc_max,
-        auc_R,
-        auc_t,
         detector_wrapper.custom_descriptor,
     )
+    if compute_pose_stats:
+        del pose_error_df, auc_max, auc_R, auc_t
     gc.collect()
     torch.cuda.empty_cache()
+    return None
 
 
-def create_fake_score_matrix_from_matched_ktps(kps1, kps2, idxs, device="cuda"):
-    """
-    Given two sets of matched keypoints, create a score matrix.
-    # not working for batch != 1
+def create_fake_score_matrix_from_matched_ktps(
+    kps1: Tensor, kps2: Tensor, idxs: Tensor, device: str = "cuda"
+) -> Tensor:
+    """Given two sets of matched keypoints, create a score matrix.
+
+    Note: not working for batch != 1.
     """
     m = torch.zeros((1, kps1.shape[0], kps2.shape[0]), device=device)
     m[0, idxs[:, 0], idxs[:, 1]] = 1.0

@@ -1,0 +1,48 @@
+[tool.ruff]
+# Match Black: 88-char lines, Python 3.12 target.
+line-length = 88
+target-version = "py312"
+
+# Generated artifacts, notebooks and checkpoints are not linted.
+extend-exclude = [
+    "*.ipynb",
+    "_bin",
+    "final_models",
+    "pretrained",
+    "trainings_descriptor",
+    "trainings_detector",
+    "assets",
+]
+
+[tool.ruff.lint]
+# E/W: pycodestyle (PEP 8), F: pyflakes, I: isort,
+# D: pydocstyle (Google convention), N: pep8-naming.
+select = ["E", "W", "F", "I", "D", "N"]
+ignore = [
+    "E741", # ambiguous variable names (l, O, I) are common for math indices
+    "N812", # allow conventional aliases: torch.nn.functional as F, matplotlib PathEffects
+    # Math/tensor naming conventions (B, N, C, K, R, T, P, ...) are intentional
+    # throughout this codebase and clearer than snake_case for these quantities.
+    "N802", # function name not lowercase (e.g. compute_GT_matches_matrix_3D)
+    "N803", # argument name not lowercase (e.g. desc_A, K, R, T)
+    "N806", # variable in function not lowercase (e.g. B, N, C tensor dims)
+    "N815", # mixed-case variable in class scope
+    # The legacy global np.random API is intentional: helpers.py checkpoints and
+    # restores np.random.get_state()/set_state() for reproducible resume, and the
+    # dataset/augmentation sampling draws from that same seeded global RNG.
+    # Migrating to np.random.Generator would change the RNG stream and break
+    # resume reproducibility.
+    "NPY002", # legacy np.random; tied to checkpoint RNG save/restore
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+# The local ``wandb/`` run-log directory makes isort guess wandb is
+# first-party; pin it as third-party so import order is deterministic.
+known-third-party = ["wandb"]
+
+[tool.ruff.format]
+# Black-compatible defaults.
+docstring-code-format = true

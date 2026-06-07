@@ -1,31 +1,33 @@
-import os
-from typing import Dict
+"""Checkpoint saving and resuming utilities."""
+
+import contextlib
+import logging
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch import nn as nn
 
+from losses.triplet_loss import TripletLoss
+
+log = logging.getLogger(__name__)
+
 
 def save_checkpoint(
-    config,
+    config: Any,  # noqa: ANN401 - Hydra/omegaconf config or plain dict
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
     iteration: int,
-    save_path: Path = None,
-    triplet_loss=None,
-    random_states=None,
-    save_all=False,
+    save_path: Path | None = None,
+    triplet_loss: TripletLoss | None = None,
+    random_states: tuple | None = None,
+    save_all: bool = False,
     total_images: int = 0,
-) -> None:
-    """
-    Saving checkpoints
-    """
-
+) -> Path:
+    """Saving checkpoints."""
     arch = type(model).__name__
-    try:
+    with contextlib.suppress(AttributeError):
         config = config.as_dict()
-    except:
-        pass
 
     config["triplet_loss"]["random_negative_ratio"] = triplet_loss.random_negative_ratio
 
@@ -40,7 +42,7 @@ def save_checkpoint(
     }
 
     if save_all:
-        os.makedirs(save_path / "saved_model", exist_ok=True)
+        (save_path / "saved_model").mkdir(parents=True, exist_ok=True)
         checkpoint_path = (
             save_path / "saved_model" / f"checkpoint-iteration-{iteration}.pth"
         )
@@ -51,19 +53,21 @@ def save_checkpoint(
 
     torch.save(state, checkpoint_path)  # save everything
 
-    print(f"Checkpoint saved at {checkpoint_path}, iteration: {iteration}")
+    log.info("Checkpoint saved at %s, iteration: %s", checkpoint_path, iteration)
     return checkpoint_path
 
 
 def resume_checkpoint(
-    model: nn.Module, optimizer: torch.optim.Optimizer, checkpoint: Dict
+    model: nn.Module, optimizer: torch.optim.Optimizer, checkpoint: dict
 ) -> None:
+    """Load model and optimizer state from a checkpoint, falling back to non-strict."""
     try:
         model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     except RuntimeError:
-        print(
-            "WARNING: current architecture and model loaded do NOT correspond, loading with <strict=False>"
+        log.warning(
+            "current architecture and model loaded do NOT correspond, "
+            "loading with <strict=False>"
         )
         model.load_state_dict(checkpoint["state_dict"], strict=False)
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"], strict=False)

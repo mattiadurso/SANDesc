@@ -1,27 +1,22 @@
-from __future__ import annotations
-from typing import Tuple
+"""Visualization utilities for images, keypoints, and matches."""
 
+from __future__ import annotations
+
+import math
 import warnings
+from typing import Any
+
 import matplotlib
-from matplotlib import pyplot as plt
-from matplotlib.collections import LineCollection
-from matplotlib.patches import Circle
 import matplotlib.patheffects as PathEffects
 import numpy as np
 import torch
-from torch import Tensor
-import math
-from utils.utils_image import pad_and_cut_image, cat_images
-
-
-import numpy as np
-import torch
-import matplotlib
 from matplotlib import pyplot as plt
-from matplotlib.patches import ConnectionPatch
+from matplotlib.collections import LineCollection
+from matplotlib.patches import Circle, ConnectionPatch
 from torch import Tensor
 
 from utils.utils_homography import warp_points
+from utils.utils_image import cat_images, pad_and_cut_image
 from utils.utils_keypoints import (
     find_distance_matrices_between_points_and_their_projections,
 )
@@ -35,7 +30,7 @@ def subplots(
     ny: int = 1,
     nx: int = 1,
     n: int | None = None,
-    figsize: Tuple[int, int] | None = None,
+    figsize: tuple[int, int] | None = None,
     dpi: float | None = None,
     name: str = "plot",
     title: str | None = None,
@@ -43,7 +38,25 @@ def subplots(
     hspace: float = 0.001,
     wspace: float = 0.001,
     subplots_adjust: bool = True,
-) -> Tuple[plt.Figure, np.ndarray | matplotlib.axes.Axes]:
+) -> tuple[plt.Figure, np.ndarray | matplotlib.axes.Axes]:
+    """Create a figure with a grid of subplots and tight spacing.
+
+    Args:
+        ny: number of rows in the grid.
+        nx: number of columns in the grid.
+        n: if given, derive nx and ny to fit n subplots.
+        figsize: the figure size.
+        dpi: the figure resolution.
+        name: the figure window name.
+        title: an optional figure suptitle.
+        axes_visible: if true keep the axis ticks and labels.
+        hspace: vertical spacing between subplots.
+        wspace: horizontal spacing between subplots.
+        subplots_adjust: if true reduce the outer spacing between subplots.
+
+    Returns:
+        The created figure and its axes.
+    """
     if n is not None:
         nx = math.ceil(math.sqrt(n))
         ny = math.ceil(n / nx)
@@ -64,13 +77,12 @@ def subplots(
     # remove ticks and labels
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
-    if isinstance(axes, np.ndarray):
-        if not axes_visible:
-            for ax in axes.flatten():
-                ax.get_xaxis().set_visible(False)
-                ax.get_yaxis().set_visible(False)
-                ax.axis("off")
-                ax.set_aspect("equal")
+    if isinstance(axes, np.ndarray) and not axes_visible:
+        for ax in axes.flatten():
+            ax.get_xaxis().set_visible(False)
+            ax.get_yaxis().set_visible(False)
+            ax.axis("off")
+            ax.set_aspect("equal")
     if title is not None:
         fig.suptitle(title)
     return fig, axes
@@ -81,7 +93,7 @@ def imshow(
     ax: plt.Axes | None = None,
     title: str = "",
     cmap: str = "inferno",
-    figsize: Tuple[int, int] = (15, 15),
+    figsize: tuple[int, int] = (15, 15),
     block: bool = False,
     pad: int = 5,
     tight_layout: bool = True,
@@ -94,11 +106,13 @@ def imshow(
     alpha: float = 1.0,
     name: str = "plot",
 ) -> any:
-    """wrapper for plt.imshow(). It can get a single image or a list, and it finds the best way to display them
-        as a single concatenated image
+    """Wrapper for plt.imshow() that accepts a single image or a list.
+
+    When given a list it finds the best way to display them as a single
+    concatenated image.
 
     Returns:
-        object:
+        The matplotlib image handle.
     """
     if ax is None:
         fig, handler = subplots(1, 1, figsize=figsize, name=name)
@@ -113,16 +127,14 @@ def imshow(
         handler.set_aspect("equal")
 
     def image_to_tensor(x: np.ndarray | Tensor) -> Tensor:
-        """convert image to tensor if it was a numpy array"""
+        """Convert image to tensor if it was a numpy array."""
         if isinstance(x, np.ndarray):
             # convert the list of np.ndarray to list of Tensor
             assert x.ndim == 2 or x.ndim == 3
             if x.ndim == 3:
                 return torch.tensor(x).permute(2, 0, 1)
-            else:
-                return torch.tensor(x)
-        else:
-            return x.detach()
+            return torch.tensor(x)
+        return x.detach()
 
     if isinstance(img, list):
         # input is a list of images
@@ -159,12 +171,12 @@ def imshow(
                         imgs[i * n_x + j],
                         (H_max_per_row[i] + pad, W_max_per_column[j] + pad),
                     )
-                    img_row = cat_images([img_row, img_pad], mode="horizontal")
+                    img_row = cat_images(img_row, img_pad, mode="horizontal")
             imgs_row.append(img_row)
 
         img_out = imgs_row[0]
         for i in range(1, len(imgs_row)):
-            img_out = cat_images([img_out, imgs_row[i]], mode="vertical")
+            img_out = cat_images(img_out, imgs_row[i], mode="vertical")
     else:
         img_out = image_to_tensor(img)
 
@@ -218,26 +230,28 @@ def scatter(
     xy: Tensor,
     radius: Tensor | float = 5.0,
     c: str | Tensor = "b",
-    label: str = None,
+    label: str | None = None,
     ax: plt.Axes = None,
     real_dimensions: bool = False,
     linewidth: Tensor | float = 2.0,
-    marker: str = None,
+    marker: str | None = None,
     alpha: float = 1.0,
     mask_outside: bool = False,
-    texts: list[str] = None,
+    texts: list[str] | None = None,
     texts_fontsize: int = 20,
-    cmap: str = None,
+    cmap: str | None = None,
     normalize_color: bool = True,
-    border_color: str = None,
+    border_color: str | None = None,
     border_width: float = 3.0,
     full: bool = False,
 ) -> None:
-    """wrapper for the scatter function, the s parameter is the radius of the scatter
+    """Wrapper for the scatter function; the s parameter is the scatter radius.
+
     Args:
-        xy: the coordinates of the points to be plotted (x, y) with convention top-left pixel center at (0.5, 0.5)
-            n,2
-        radius: the radius of the scatter. Can be either one single value or a value for each point
+        xy: the coordinates of the points to be plotted (x, y) with convention
+            top-left pixel center at (0.5, 0.5), shape n,2
+        radius: the radius of the scatter. Can be either one single value or a
+            value for each point
         c: the color of the scatter
         label: the label of the scatter plot
         ax: the axis where to plot the scatter
@@ -252,7 +266,7 @@ def scatter(
         normalize_color: if True, normalize the color between 0 and 1
         border_color: if not none, apply a border to the points
         border_width: the width of the border
-        full: if True, plot the markers as full
+        full: if True, plot the markers as full.
     """
     if xy.ndim == 1:
         xy = xy[None]
@@ -274,9 +288,9 @@ def scatter(
         assert xy.shape[0] == len(texts)
 
     if cmap is not None:
-        assert isinstance(
-            c, np.ndarray
-        ), "c must be a numpy array when using a colormap"
+        assert isinstance(c, np.ndarray), (
+            "c must be a numpy array when using a colormap"
+        )
         if normalize_color:
             c = (c - c.min(initial=None)) / (c.max(initial=None) - c.min(initial=None))
         c = plt.get_cmap(cmap)(c)
@@ -285,7 +299,7 @@ def scatter(
         x_max = ax.get_xlim()[1]
         y_max = ax.get_ylim()[0]
         # mask the point that project outside
-        mask_inside = (0 < xy).all(-1) * (xy[:, 0] < x_max) * (xy[:, 1] < y_max)
+        mask_inside = (xy > 0).all(-1) * (xy[:, 0] < x_max) * (xy[:, 1] < y_max)
         xy = xy[mask_inside]
         if isinstance(radius, np.ndarray):
             radius = radius[mask_inside]
@@ -306,7 +320,9 @@ def scatter(
         assert xy.ndim == 2
         if isinstance(radius, float):
             radius = torch.ones(xy.shape[0]) * radius
-        for x, y, r, color in zip(xy[:, 0].cpu(), xy[:, 1].cpu(), radius, c):
+        for x, y, r, color in zip(
+            xy[:, 0].cpu(), xy[:, 1].cpu(), radius, c, strict=False
+        ):
             handler.add_artist(
                 Circle(xy=(x, y), radius=r, facecolor="none", edgecolor=color)
             )
@@ -342,7 +358,7 @@ def scatter(
         )
 
     if texts is not None:
-        for color, xy_, text_ in zip(c, xy, texts):
+        for color, xy_, text_ in zip(c, xy, texts, strict=False):
             handler.annotate(
                 f"{text_}",
                 xy=xy_,
@@ -363,17 +379,18 @@ def fill(
     border_color: str | None = None,
     border_width: float = 3.0,
 ) -> None:
-    """wrapper for the scatter function, the s parameter is the radius of the scatter
+    """Wrapper for the scatter function; the s parameter is the scatter radius.
+
     Args:
-        xy: the coordinates of the points to be plotted (x, y) with convention top-left pixel center at (0.5, 0.5)
-            n,2
+        xy: the coordinates of the points to be plotted (x, y) with convention
+            top-left pixel center at (0.5, 0.5), shape n,2
         c: the color of the scatter
         label: the label of the scatter plot
         ax: the axis where to plot the scatter
         linewidth: the linewidth of the scatter
         alpha: the alpha of the scatter
         border_color: if not none, apply a border to the points
-        border_width: the width of the border
+        border_width: the width of the border.
     """
     if xy.ndim == 1:
         xy = xy[None]
@@ -408,17 +425,18 @@ def fill(
 
 def text(
     string: str,
-    xy: Tensor | np.ndarray | Tuple[int, int],
+    xy: Tensor | np.ndarray | tuple[int, int],
     c: str | Tensor = "r",
     fontsize: int = 14,
     ha: str = "left",
     va: str = "top",
-    border_color: str = None,
+    border_color: str | None = None,
     border_width: int = 2,
     alpha: float = 1.0,
     ax: plt.Axes = None,
 ) -> any:
-    """wrapper for the fill function
+    """Wrapper for the fill function.
+
     Args:
         string: the text to be plotted
         xy: coordinates of the text
@@ -429,7 +447,7 @@ def text(
         border_color: the color of the border of the text
         border_width: the width of the border of the text
         alpha: the alpha of the scatter
-        ax: the axis where to plot the fill
+        ax: the axis where to plot the fill.
     """
     if isinstance(xy, Tensor):
         xy = xy.cpu().numpy()
@@ -443,7 +461,7 @@ def text(
     else:
         path_effects = None
 
-    ref = handler.text(
+    return handler.text(
         xy[0],
         xy[1],
         string,
@@ -455,27 +473,31 @@ def text(
         path_effects=path_effects,
         clip_on=True,
     )
-    return ref
 
 
 def plot_pairs(
     xy0: Tensor,
     xy1: Tensor,
-    c=None,
-    linewidth=None,
-    ax=None,
-):
-    """plot a line for each xy pair provided as input
-    inputs:
-        xy0: first set of points
-            n,2
-        xy1: second set of points
-            n,2
+    c: Any = None,  # noqa: ANN401 - matplotlib color spec (str, RGB(A), array, ...)
+    linewidth: float | None = None,
+    ax: plt.Axes | None = None,
+) -> None:
+    """Plot a line for each xy pair provided as input.
+
+    Args:
+        xy0: first set of points, shape n,2
+        xy1: second set of points, shape n,2
+        c: the color of the lines
+        linewidth: the linewidth of the lines
+        ax: the axis where to plot the lines.
     """
     assert xy0.shape == xy1.shape, f"xy0.shape = {xy0.shape}, xy1.shape = {xy1.shape}"
     handler = plt if ax is None else ax
 
-    lines = [np.array(points) for points in zip(xy0.cpu().numpy(), xy1.cpu().numpy())]
+    lines = [
+        np.array(points)
+        for points in zip(xy0.cpu().numpy(), xy1.cpu().numpy(), strict=False)
+    ]
     lc = LineCollection(lines, colors=c, linewidths=linewidth)
     handler.add_collection(lc)
 
@@ -487,23 +509,23 @@ def plot_gaussian_ellipses(
     ax: plt.Axes = None,
     linewidth: float = 1.0,
     alpha: float = 1.0,
-    border_color: str = None,
+    border_color: str | None = None,
     border_width: float = 3.0,
-    linestyle: str = None,
+    linestyle: str | None = None,
 ) -> None:
-    """
+    """Plot the confidence ellipse of each gaussian.
+
     Args:
-        mean: the mean of the gaussian
-            2
-        covariance: the covariance of the gaussian
-            single float | Tensor 1 | Tensor 2 | Tensor 2,2
+        mean: the mean of the gaussian, shape 2
+        covariance: the covariance of the gaussian, single float | Tensor 1 |
+            Tensor 2 | Tensor 2,2
         c: the color of the scatter
         ax: the axis where to plot the scatter
         linewidth: the linewidth of the scatter
         alpha: the alpha of the scatter
         border_color: if not none, apply a border to the points
         border_width: the width of the border
-        linestyle: linestyle of the ellipse
+        linestyle: linestyle of the ellipse.
     """
     handler = plt.gca() if ax is None else ax
 
@@ -540,23 +562,25 @@ def plot_gaussian_ellipses(
 
 
 def plot_rectangle(
-    ax,
+    ax: plt.Axes,
     center: Tensor,
     dimensions: Tensor,
-    max_dimensions: Tuple[int, int] = None,
+    max_dimensions: tuple[int, int] | None = None,
     c: str = "r",
-):
-    """plot a rectangle centered in center, if max_dimensions is provided, the plot is clamped to stay i the image
+) -> list:
+    """Plot a rectangle centered in center.
+
+    If max_dimensions is provided, the plot is clamped to stay in the image.
+
     Args:
         ax: the matplotlib axis to use for plotting
-        center: the center coordinate given as (x, y)
-            2
-        dimensions: the rectangle dimensions given as (W, H)
-            2
-        max_dimensions: (W, H) if provided the plot remain inside the image
+        center: the center coordinate given as (x, y), shape 2
+        dimensions: the rectangle dimensions given as (W, H), shape 2
+        max_dimensions: (W, H) if provided the plot remains inside the image
         c: the color
+
     Returns:
-        ax_plot
+        ax_plot.
     """
     corners_for_plot = torch.tensor(
         [
@@ -580,28 +604,30 @@ def plot_image_pair_with_keypoints_repeatability(
     xy1: Tensor,
     hom: Tensor,
     radius: float = 5,
-    name: str = None,
-    title: str = None,
-    figsize: tuple[int, int] = None,
-    dpi: float = None,
+    name: str | None = None,
+    title: str | None = None,
+    figsize: tuple[int, int] | None = None,
+    dpi: float | None = None,
     marker: str | None = None,
     axes: np.ndarray = None,
 ) -> tuple[plt.Figure, np.ndarray]:
-    """
+    """Plot an image pair with keypoints colored by repeatability.
+
     Args:
         img0: image 0
         img1: image 1
-        xy0: keypoints in image 0 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n0,2
-        xy1: keypoints in image 1 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n1,2
+        xy0: keypoints in image 0 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n0,2
+        xy1: keypoints in image 1 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n1,2
         hom: the homography that links the two images
         radius: the radius of the scatter
         name: the name of the figure
         title: the plot title
         figsize: the figure size
         dpi: the figure dpi
-        axes: if provided, do not open a new figure but instead plot on the provided axes
+        marker: the scatter marker
+        axes: if provided, do not open a new figure but plot on these axes.
     """
     assert img0.ndim in {2, 3} and img1.ndim in {2, 3}, "image.ndim must be 2 or 3"
     assert xy0.ndim == 2 and xy1.ndim == 2, "xy must be a 2D tensor"
@@ -689,31 +715,32 @@ def plot_image_pair_with_keypoints_and_matches(
     radius: float = 5,
     matches_alpha: float = 0.5,
     name: str | None = None,
-    title: str = None,
-    figsize: tuple[int, int] = None,
-    dpi: float = None,
+    title: str | None = None,
+    figsize: tuple[int, int] | None = None,
+    dpi: float | None = None,
     axes: np.ndarray = None,
 ) -> tuple[plt.Figure, np.ndarray]:
-    """
+    """Plot an image pair with keypoints and their matches.
+
     Args:
         img0: image 0
         img1: image 1
-        xy0: keypoints in image 0 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n0,2
-        xy1: keypoints in image 1 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n1,2
-        matches: matches formatted as (index of matched xy0, index of matched xy1)
-            n_matches, 2
+        xy0: keypoints in image 0 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n0,2
+        xy1: keypoints in image 1 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n1,2
+        matches: matches formatted as (index of matched xy0, index of matched
+            xy1), shape n_matches, 2
         hom: the homography that links the two images
         highlight_mask: if provided, the matches are plotted thicker
+        show_all_keypoints: if True, plot all the keypoints
         radius: the radius of the scatter
         matches_alpha: the alpha of the matches
-        show_all_keypoints: if True, plot all the keypoints
         name: the name of the figure
         title: the plot title
         figsize: the figure size
         dpi: the figure dpi
-        axes: if provided, do not open a new figure but instead plot on the provided axes
+        axes: if provided, do not open a new figure but plot on these axes.
     """
     assert img0.ndim in {2, 3} and img1.ndim in {2, 3}, "image.ndim must be 2 or 3"
     assert xy0.ndim == 2 and xy1.ndim == 2, "xy must be a 2D tensor"
@@ -749,6 +776,17 @@ def plot_image_pair_with_keypoints_and_matches(
     dist = torch.stack([dist_in_img0, dist_in_img1]).mean(0)
 
     def get_matches_color(dist_matched: Tensor) -> Tensor:
+        """Maps per-match reprojection errors to RGB colors.
+
+        Colors grade from green (error < 1) through yellow and orange to red
+        (error >= 3), giving a visual cue of match quality.
+
+        Args:
+            dist_matched: Per-match error distances of shape ``[N]``.
+
+        Returns:
+            An RGB color tensor of shape ``[N, 3]`` in the range ``[0, 1]``.
+        """
         color_matches = torch.tensor([1.0, 0.0, 0.0])[None].repeat(
             dist_matched.shape[0], 1
         )  # set everything as red
@@ -825,30 +863,33 @@ def plot_image_pair_with_keypoints(
     axes: np.ndarray = None,
     name: str | None = None,
 ) -> tuple[plt.Figure, np.ndarray]:
-    """
+    """Plot an image pair with keypoints and optional matches.
+
     Args:
         img0: image 0
         img1: image 1
-        xy0: keypoints in image 0 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n0, 2
-        xy1: keypoints in image 1 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n1, 2
-        matches: matches formatted as (index of matched xy0, index of matched xy1)
-            n_matches, 2
-        matches_color:
-            n_matches or n_matches,3
-        indexes0: indexes of the keypoints in image 0. If provided, the indexes are plotted
-        indexes1: indexes of the keypoints in image 1. If provided, the indexes are plotted
+        xy0: keypoints in image 0 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n0, 2
+        xy1: keypoints in image 1 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n1, 2
+        matches: matches formatted as (index of matched xy0, index of matched
+            xy1), shape n_matches, 2
+        matches_color: per-match color, shape n_matches or n_matches,3
+        indexes0: indexes of the keypoints in image 0. If provided they are
+            plotted
+        indexes1: indexes of the keypoints in image 1. If provided they are
+            plotted
         plot_matches: if True, plot the matches
         radius: the radius of the scatter
         cmap: the colormap to use for points and matches
-        thicknesses: if provided, the thickness of the lines is proportional to the confidence
+        thicknesses: if provided, the line thickness is proportional to the
+            confidence
         matches_alpha: the alpha of the matches
         title: the plot title
         dpi: the figure dpi
         figsize: the figure size
-        axes: if provided, do not open a new figure but instead plot on the provided axes
-        name: the name of the figure
+        axes: if provided, do not open a new figure but plot on these axes
+        name: the name of the figure.
     """
     assert img0.ndim in {2, 3} and img1.ndim in {2, 3}, "image.ndim must be 2 or 3"
     assert xy0.ndim == 2 and xy1.ndim == 2, "xy must be a 2D tensor"
@@ -951,42 +992,46 @@ def matching_plot(
     xy1: Tensor,
     matches: MatchesWithExtra,
     plot_matches: bool = True,
-    title: str = None,
+    title: str | None = None,
     figsize: tuple[int, int] | None = None,
     dpi: float | None = None,
     axes: np.ndarray | None = None,
     name: str | None = None,
 ) -> tuple[plt.Figure, np.ndarray]:
-    """
+    """Plot an image pair with color-coded match correctness.
+
     Args:
         img0: image 0
         img1: image 1
-        xy0: keypoints in image 0 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n0, 2
-        xy1: keypoints in image 1 (x, y) with convention top-left pixel center at coordinate (0.5, 0.5)
-            n1, 2
-        matches: matches formatted as (index of matched xy0, index of matched xy1)
-            n_matches, 2
+        xy0: keypoints in image 0 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n0, 2
+        xy1: keypoints in image 1 (x, y) with convention top-left pixel center
+            at coordinate (0.5, 0.5), shape n1, 2
+        matches: matches formatted as (index of matched xy0, index of matched
+            xy1), shape n_matches, 2
         plot_matches: if True, plot the matches
         title: the plot title
         figsize: the figure size
         dpi: the figure dpi
-        axes: if provided, do not open a new figure but instead plot on the provided axes
-        name: the name of the figure
+        axes: if provided, do not open a new figure but plot on these axes
+        name: the name of the figure.
     """
-    assert img0.ndim == 2 or (
-        img0.ndim == 3 and img0.shape[0] in {1, 3}
-    ), "image.ndim must be 2 or 3"
-    assert img1.ndim == 2 or (
-        img1.ndim == 3 and img1.shape[0] in {1, 3}
-    ), "image.ndim must be 2 or 3"
-    assert (
-        xy0.ndim == 2 and xy1.ndim == 2
-    ), f"xy must be a 2D tensor, got {xy0.ndim} and {xy1.ndim}"
+    assert img0.ndim == 2 or (img0.ndim == 3 and img0.shape[0] in {1, 3}), (
+        "image.ndim must be 2 or 3"
+    )
+    assert img1.ndim == 2 or (img1.ndim == 3 and img1.shape[0] in {1, 3}), (
+        "image.ndim must be 2 or 3"
+    )
+    assert xy0.ndim == 2 and xy1.ndim == 2, (
+        f"xy must be a 2D tensor, got {xy0.ndim} and {xy1.ndim}"
+    )
     assert matches.shape == (
         xy0.shape[0],
         xy1.shape[0],
-    ), f"matches must be a 2D tensor of shape {xy0.shape[0], xy1.shape[0]}, got {matches.shape}"
+    ), (
+        f"matches must be a 2D tensor of shape {xy0.shape[0], xy1.shape[0]}, "
+        f"got {matches.shape}"
+    )
 
     matches_unsure_idxs = matches.matching_matrix_extra.unsure.nonzero()
     matches_inexistent_idxs = matches.matching_matrix_extra.inexistent.nonzero()

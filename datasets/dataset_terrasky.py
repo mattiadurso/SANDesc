@@ -1,37 +1,40 @@
+"""TerraSky3D dataset loader."""
+
+import json
+import logging
+from collections.abc import Callable
 from pathlib import Path
 
-import os
 import h5py
-import json
 import imageio.v3 as io
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
-import pandas as pd
 from torch import Tensor
-from tqdm.auto import tqdm
 from torch.utils.data import Dataset
 from torchvision import transforms
+from tqdm.auto import tqdm
 
+from datasets.dataset_paths import resolve_dataset_path
 from utils.utils_3D import rotate_image_and_camera_z_axis
 
-# Define primary and fallback dataset paths
-primary_path = Path("/home/mattia/Desktop/datasets/mydataset/data")  # local
-fallback_path = Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data")  # server
+log = logging.getLogger(__name__)
 
-# Select the first available dataset path
-if primary_path.exists():
-    DATASET_PATH = primary_path
-elif fallback_path.exists():
-    DATASET_PATH = fallback_path
-else:
-    exit("Dataset megadepth-disk not found")
+# Candidate dataset paths; override with the SANDESC_TERRASKY_PATH env var.
+DATASET_CANDIDATES = [
+    Path("/home/mattia/Desktop/datasets/mydataset/data"),  # local
+    # NOTE: server fallback below points at the Megadepth dir (pre-existing,
+    # likely wrong for TerraSky); override with SANDESC_TERRASKY_PATH.
+    Path("/gpfs/data/fs72667/icgma_durso/Megadepth/data"),  # server
+]
 
 
 def rescale_and_pad(
     img: Tensor, depth: Tensor, K: Tensor, img_size: int
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Scale the longest side to fit the image, and pad the other
+    """Scale the longest side to fit the image, and pad the other.
+
     Args:
         img: the input image tensor
             C,H,W
@@ -39,7 +42,7 @@ def rescale_and_pad(
             H,W
         K: the camera intrinsics matrix
             3,3
-        img_size: the output image size
+        img_size: the output image size.
 
     Returns:
         img: the rescaled and padded image
@@ -48,6 +51,7 @@ def rescale_and_pad(
             H,W
         K: the adapted intrinsics matrix
             3,3
+
     """
     H, W = img.shape[-2:]
     scale_factor = min(img_size / H, img_size / W)
@@ -74,7 +78,8 @@ def rescale_and_pad(
 def rescale_and_center_crop(
     img: Tensor, depth: Tensor, K: Tensor, img_size: int
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Scale such that the shortest side fit the image, and crop the other
+    """Scale such that the shortest side fits the image, and crop the other.
+
     Args:
         img: the input image tensor
             C,H,W
@@ -82,7 +87,7 @@ def rescale_and_center_crop(
             H,W
         K: the camera intrinsics matrix
             3,3
-        img_size: the output image size
+        img_size: the output image size.
 
     Returns:
         img: the rescaled and cropped image
@@ -91,6 +96,7 @@ def rescale_and_center_crop(
             H,W
         K: the adapted intrinsics matrix
             3,3
+
     """
     H, W = img.shape[-2:]
     scale_factor = max(img_size / H, img_size / W)
@@ -120,22 +126,30 @@ def rescale_and_center_crop(
 
 
 class TerraSkyDataset(Dataset):
+    """TerraSky3D dataset of cross-view (aerial/ground) image pairs."""
+
     def __init__(
         self,
         img_size: int = 512,
         rescale_mode: str = "crop",
-        random_rotation_degrees_fn: callable = None,
-        transform: transforms.Compose = transforms.Compose([]),
+        random_rotation_degrees_fn: Callable | None = None,
+        transform: transforms.Compose | None = None,
         only_mixed: bool = False,  # not used
         verbose: bool = False,
-    ):
-        """
+    ) -> None:
+        """Build the dataset.
+
         Args:
-            img_size: the output image size
-            rescale_mode: how to rescale the images, either crop or pad
-            random_rotation_degrees_fn: a function that returns a random rotation angle in degrees
-            transform: the transformation to apply to the images
+            img_size: the output image size.
+            rescale_mode: how to rescale the images, either crop or pad.
+            random_rotation_degrees_fn: a function returning a random rotation
+                angle in degrees.
+            transform: the transformation to apply to the images.
+            only_mixed: keep only aerial/ground mixed pairs (currently unused).
+            verbose: whether to print dataset statistics and skip messages.
         """
+        if transform is None:
+            transform = transforms.Compose([])
         assert rescale_mode in [
             "crop",
             "pad",
@@ -148,20 +162,26 @@ class TerraSkyDataset(Dataset):
         self.transform = transforms.Compose(
             [t for t in transform.transforms if not isinstance(t, transforms.ToTensor)]
         )
-        scenes = sorted(os.listdir(DATASET_PATH))
+        self.dataset_path = resolve_dataset_path(
+            "TerraSky3D", "SANDESC_TERRASKY_PATH", DATASET_CANDIDATES
+        )
+        scenes = sorted(p.name for p in self.dataset_path.iterdir())
 
-        with open(DATASET_PATH.parent / "train_data.json") as f:
+        with (self.dataset_path.parent / "train_data.json").open() as f:
             self.scenes = json.load(f)
 
         self.flattened_pairs = []
         bar = tqdm(scenes, desc="Loading scenes and pairs")
         for scene in bar:
             try:
-                # this is way to use pairs, but one can use whatever as long as they are meaninguful
+                # this is one way to select pairs, but one can use whatever as
+                # long as they are meaningful
+                csv_name = (
+                    "cyclic_depth_filtering_results1600_"
+                    "bidirectionally_filtered_square.csv"
+                )
                 df = pd.read_csv(
-                    DATASET_PATH
-                    / scene
-                    / "cyclic_depth_filtering_results1600_bidirectionally_filtered_square.csv",
+                    self.dataset_path / scene / csv_name,
                     index_col=None,
                 )
                 # filter df by num_pixels > 3000 and th 10 > 0.5
@@ -169,13 +189,16 @@ class TerraSkyDataset(Dataset):
                 df = df[df["10px"] > 0.5]
 
             except FileNotFoundError:
-                # this should not happen, but just in case, we skip the scene if the consistency check results are not found
+                # this should not happen, but just in case we skip the scene if
+                # the consistency check results are not found
                 if self.verbose:
-                    print(
-                        f"Consistency check results not found for scene {scene}, skipping..."
+                    log.debug(
+                        "Consistency check results not found for scene %s, skipping...",
+                        scene,
                     )
                 continue
-            # ... here there might some filtering of the pairs based on the consistency check results
+            # ... here there might be some filtering of the pairs based on the
+            # consistency check results
             pairs = df[["level_0", "level_1"]].values.tolist()
 
             if only_mixed:
@@ -215,39 +238,49 @@ class TerraSkyDataset(Dataset):
                 if "aerial" not in img0 and "aerial" not in img1
             )
             total_pairs = len(self.flattened_pairs)
-            print(
-                f"Mixed images:  {mixed_count:>10,} ({mixed_count/total_pairs:>7.2%})",
-                f"Aerial images: {aerial_count:>10,} ({aerial_count/total_pairs:>7.2%})",
-                f"Ground images: {ground_count:>10,} ({ground_count/total_pairs:>7.2%})",
-                "-" * 40,
-                f"Total pairs:   {total_pairs:>10,}",
-                sep="\n",
+            log.info(
+                "\n".join(
+                    [
+                        f"Mixed images:  {mixed_count:>10,} "
+                        f"({mixed_count / total_pairs:>7.2%})",
+                        f"Aerial images: {aerial_count:>10,} "
+                        f"({aerial_count / total_pairs:>7.2%})",
+                        f"Ground images: {ground_count:>10,} "
+                        f"({ground_count / total_pairs:>7.2%})",
+                        "-" * 40,
+                        f"Total pairs:   {total_pairs:>10,}",
+                    ]
+                )
             )
 
-    def __len__(self):
-        #  here we should have 10000, but we keep some margin because we might have some invalid images
+    def __len__(self) -> int:
+        """Return the number of flattened image pairs."""
         return len(self.flattened_pairs)
 
     def __getitem__(self, idx: int) -> dict:
-        """get the pair of images
+        """Get the pair of images.
+
         Args:
-            idx: the index of the pair
+            idx: the index of the pair.
 
         Returns:
-            output: a dictionary containing the pair of images, the depth maps, the camera intrinsics and extrinsics
+            A dictionary with the pair of images, the depth maps, and the
+            camera intrinsics and extrinsics.
         """
-
         while True:
             # drawing a random scene
             current_scene_name = list(self.scenes.keys())[idx % len(self.scenes)]
             current_scene = self.scenes[current_scene_name]
-            base_path = DATASET_PATH / current_scene_name
+            base_path = self.dataset_path / current_scene_name
 
             # drawing a pair of images from the current scene
             pairs = current_scene["pairs"]
             if pairs is None or len(pairs) == 0:
                 if self.verbose:
-                    print(f"No valid pairs in scene {current_scene_name}, skipping...")
+                    log.debug(
+                        "No valid pairs in scene %s, skipping...",
+                        current_scene_name,
+                    )
                 continue
             pair_idx = np.random.randint(len(pairs))
             img0_name, img1_name = pairs[pair_idx]
@@ -257,8 +290,11 @@ class TerraSkyDataset(Dataset):
 
             if img0 is None or img1 is None:
                 if self.verbose:
-                    print(
-                        f"Skipping invalid pair {img0_name}, {img1_name} in scene {current_scene_name}"
+                    log.debug(
+                        "Skipping invalid pair %s, %s in scene %s",
+                        img0_name,
+                        img1_name,
+                        current_scene_name,
                     )
                 continue
 
@@ -282,8 +318,7 @@ class TerraSkyDataset(Dataset):
             depth0[depth0 == 0.0] = float("nan")
             depth1[depth1 == 0.0] = float("nan")
 
-            output = {
-                # "scene": current_scene_name,
+            return {
                 "img0": self.transform(img0),
                 "img1": self.transform(img1),
                 "depth0": depth0,
@@ -294,15 +329,18 @@ class TerraSkyDataset(Dataset):
                 "P1": P1,
             }
 
-            return output
+    def load_data(
+        self, base_path: Path, img: str, current_scene: dict
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        """Load a single image with its depth map, intrinsics and pose.
 
-    def load_data(self, base_path, img, current_scene):
-        """load the pair of images
         Args:
-            idx: the index of the pair
+            base_path: path to the current scene directory.
+            img: the image file name.
+            current_scene: the scene metadata dictionary.
 
         Returns:
-            output: a dictionary containing the pair of images, the depth maps, the camera intrinsics and extrinsics
+            The image, depth map, intrinsics K and pose P.
         """
         img_path = base_path / "frames" / img
         depth_path = (
@@ -317,16 +355,17 @@ class TerraSkyDataset(Dataset):
         P = torch.tensor(img_entry["P"])
         P = torch.cat([P, torch.tensor([[0.0, 0.0, 0.0, 1.0]])], dim=0)
 
-        # forcing the principal point to be in the center of the image, as we will apply random crops and rotations
-        # which might not be the best choice but it works for now
+        # forcing the principal point to be in the center of the image, as we
+        # will apply random crops and rotations; this might not be the best
+        # choice but it works for now
         K = torch.tensor(current_scene["cameras"][str(img_entry["K_id"])]["K"])
         K[0, 2] = img_rgb.shape[-1] // 2
         K[1, 2] = img_rgb.shape[-2] // 2
 
         return img_rgb.float(), depth.float(), K.float(), P.float()
 
-    def reset(self):
-        """reset the dataloader"""
+    def reset(self) -> None:
+        """Reset the dataloader."""
         self.__init__(
             img_size=self.img_size,
             rescale_mode=self.rescale_mode,
