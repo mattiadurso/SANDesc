@@ -155,6 +155,16 @@ class MatchesWithExtra:
     def _compute_matching_matrix_extra(
         self, matching_matrix_GT_with_bins: Tensor
     ) -> None:
+        """Stores the GT matching matrix and computes per-match categories.
+
+        Populates ``self.matching_matrix_extra`` by classifying each predicted
+        match against the ground truth as correct, wrong, mismatched,
+        inexistent, or unsure.
+
+        Args:
+            matching_matrix_GT_with_bins: Ground-truth matching matrix including
+                dustbin rows/columns for unmatched keypoints.
+        """
         self.matching_matrix_GT_with_bins = matching_matrix_GT_with_bins
         self.matching_matrix_extra = (
             compute_correct_wrong_mismatched_inexistent_unsure_matches(
@@ -383,6 +393,16 @@ class Matches:
     def _compute_matching_matrix_extra(
         self, matching_matrix_GT_with_bins: Tensor
     ) -> None:
+        """Stores the GT matching matrix and computes per-match categories.
+
+        Populates ``self.matching_matrix_extra`` by classifying each predicted
+        match against the ground truth as correct, wrong, mismatched,
+        inexistent, or unsure.
+
+        Args:
+            matching_matrix_GT_with_bins: Ground-truth matching matrix including
+                dustbin rows/columns for unmatched keypoints.
+        """
         self.matching_matrix_GT_with_bins = matching_matrix_GT_with_bins
         self.matching_matrix_extra = (
             compute_correct_wrong_mismatched_inexistent_unsure_matches(

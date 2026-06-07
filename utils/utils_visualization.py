@@ -776,6 +776,17 @@ def plot_image_pair_with_keypoints_and_matches(
     dist = torch.stack([dist_in_img0, dist_in_img1]).mean(0)
 
     def get_matches_color(dist_matched: Tensor) -> Tensor:
+        """Maps per-match reprojection errors to RGB colors.
+
+        Colors grade from green (error < 1) through yellow and orange to red
+        (error >= 3), giving a visual cue of match quality.
+
+        Args:
+            dist_matched: Per-match error distances of shape ``[N]``.
+
+        Returns:
+            An RGB color tensor of shape ``[N, 3]`` in the range ``[0, 1]``.
+        """
         color_matches = torch.tensor([1.0, 0.0, 0.0])[None].repeat(
             dist_matched.shape[0], 1
         )  # set everything as red
