@@ -156,6 +156,12 @@ def setup_dataloaders(cfg: DictConfig) -> tuple:
 
     # Training dataloader
     def random_rotation_degrees_fn() -> float:
+        """Samples a random rotation in degrees for training augmentation.
+
+        Returns:
+            A value drawn uniformly from
+            ``[-random_training_rotation, +random_training_rotation]``.
+        """
         return np.random.uniform(
             -cfg.training.random_training_rotation,
             cfg.training.random_training_rotation,

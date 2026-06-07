@@ -248,6 +248,17 @@ def plot_imgs_and_kpts(
     def pad_to_height(
         img: Tensor, target_h: int, pad_color: tuple[int, int, int]
     ) -> tuple[Tensor, int]:
+        """Vertically center-pads an image to ``target_h`` with ``pad_color``.
+
+        Args:
+            img: Image tensor of shape ``[H, W, 3]``.
+            target_h: Desired output height.
+            pad_color: RGB color used to fill the padded region.
+
+        Returns:
+            A tuple of the padded image ``[target_h, W, 3]`` and the number of
+            rows added at the top (``pad_top``), used to offset keypoints.
+        """
         h, w, c = img.shape
         if h >= target_h:
             return img, 0
